@@ -1,26 +1,48 @@
 @import "tailwindcss";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
-
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+/* Tailwind's own preflight (inside its @layer base) already gives every
+   element box-sizing:border-box and zeroes margin/padding — the same reset
+   this file used to do by hand with an unlayered `* { ... }` rule. That
+   unlayered rule was a real bug: CSS gives un-layered declarations higher
+   priority than anything inside a @layer, no matter its specificity, so it
+   was silently overriding every Tailwind padding/margin utility in the app.
+   Layering this body rule under `base` keeps it playing by the same rules
+   as everything else instead of unconditionally winning. */
+@layer base {
+  body {
+    font-family:
+      -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue",
+      Arial, sans-serif;
+    background-color: #f2f5f3;
+    color: #1a252c;
+    min-height: 100vh;
   }
 }
 
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+/* A freshly-added custom item (a service line, a project card) fades and
+   settles in, instead of just popping into place. */
+@keyframes sc-fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* A brief highlight pulse — used to draw the eye to "My Services" after
+   jumping to it from the summary card. */
+@keyframes services-pulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba(37, 99, 235, 0);
+  }
+  15% {
+    box-shadow: 0 0 0 4px rgba(37, 99, 235, 0.15);
+    border-radius: 10px;
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(37, 99, 235, 0);
+  }
 }

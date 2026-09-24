@@ -7,7 +7,12 @@ const LABELS: Record<ApprovalStatus, string> = {
   declined: "Declined",
 };
 
-const DANGER_STYLE = { background: "#fbdada", color: "#b91c1c" };
+const STATUS_STYLES: Record<ApprovalStatus, { pill: string; dot: string }> = {
+  waiting: { pill: "bg-[#fdf1de] text-[#a35a12]", dot: "bg-[#d99136]" },
+  approved: { pill: "bg-[#e5f6ea] text-[#15803d]", dot: "bg-[#16a34a]" },
+  revision: { pill: "bg-[#fbdada] text-[#b91c1c]", dot: "bg-[#dc2626]" },
+  declined: { pill: "bg-[#fbdada] text-[#b91c1c]", dot: "bg-[#dc2626]" },
+};
 
 const StatusPill = ({
   status,
@@ -18,18 +23,14 @@ const StatusPill = ({
   label?: string;
   style?: React.CSSProperties;
 }) => {
-  const isDanger = status === "revision" || status === "declined";
-  const className = `status-pill-lg${
-    status === "approved" ? " status-approved" : status === "waiting" ? " status-waiting" : ""
-  }`;
+  const { pill, dot } = STATUS_STYLES[status];
 
   return (
-    <span className={className} style={{ ...(isDanger ? DANGER_STYLE : {}), ...style }}>
-      <span
-        className="status-dot-sm"
-        style={isDanger ? { background: "#dc2626" } : undefined}
-      />{" "}
-      {label ?? LABELS[status]}
+    <span
+      className={`inline-flex shrink-0 items-center gap-1.5 rounded-xl px-3 py-1 text-[11px] font-bold whitespace-nowrap ${pill}`}
+      style={style}
+    >
+      <span className={`h-1.5 w-1.5 rounded-full ${dot}`} /> {label ?? LABELS[status]}
     </span>
   );
 };

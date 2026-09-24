@@ -51,69 +51,67 @@ const NewProject = () => {
 
   return (
     <>
-      <div className="breadcrumb-row">
-        <div className="breadcrumbs">
-          <Link href="/projects" className="breadcrumb-link">
+      <div className="flex items-center justify-between">
+        <div className="text-[13px] text-[#6a7b8a]">
+          <Link href="/projects" className="cursor-pointer font-bold text-[#18232c] hover:underline">
             Projects
           </Link>{" "}
-          / <b>New Project</b>
+          / <b className="text-[#18232c]">New Project</b>
         </div>
       </div>
 
-      <div className="projects-centered-wrap">
+      <div className="mx-auto flex w-full max-w-205 flex-col gap-4.5 self-center">
         <div>
-          <div className="page-title">New Project</div>
-          <div className="page-desc">
+          <div className="font-serif text-[26px] font-bold text-[#0b1a26]">New Project</div>
+          <div className="mt-1 text-[13px] text-[#657787]">
             Tell us about the initiative — your BayShore team will review it and reach out with next steps.
           </div>
         </div>
 
-        <div className="section-card">
-          <label className="field-label">
-            Project Name <span className="required-star">*</span>
+        <div className="rounded-lg border border-[#dbe3de] bg-white p-5">
+          <label className="mb-1.25 block text-[11.5px] font-bold text-[#384b59]">
+            Project Name <span>*</span>
           </label>
           <input
             type="text"
-            className="input-text"
+            className={`w-full rounded-md border bg-[#fafcfb] px-3 py-2.25 text-[12.5px] text-[#17242f] ${
+              nameMissing ? "border-[#dc2626]" : "border-[#cbd6d0]"
+            }`}
             placeholder="e.g. Website Redesign"
             value={name}
-            style={nameMissing ? { borderColor: "#dc2626" } : undefined}
             onChange={(event) => {
               setName(event.target.value);
               setNameMissing(false);
             }}
           />
           {nameMissing ? (
-            <div className="field-hint" style={{ color: "#dc2626", fontStyle: "normal" }}>
-              Give your project a name to continue.
-            </div>
+            <div className="mt-1 text-[10.5px] text-[#dc2626]">Give your project a name to continue.</div>
           ) : null}
 
-          <div style={{ marginTop: 14 }}>
-            <label className="field-label">Description</label>
+          <div className="mt-3.5">
+            <label className="mb-1.25 block text-[11.5px] font-bold text-[#384b59]">Description</label>
             <textarea
-              className="textarea-caption"
-              style={{ height: 84 }}
+              className="h-21 w-full resize-none rounded-md border border-[#cbd6d0] bg-[#fafcfb] px-3 py-2.25 font-[inherit] text-xs text-[#1a252c]"
               placeholder="What is this project about?"
               value={description}
               onChange={(event) => setDescription(event.target.value)}
             />
           </div>
 
-          <div className="form-grid-2" style={{ marginTop: 14 }}>
+          <div className="mt-3.5 grid grid-cols-2 gap-4">
             <div>
-              <label className="field-label">Target Completion</label>
+              <label className="mb-1.25 block text-[11.5px] font-bold text-[#384b59]">Target Completion</label>
               <input
                 type="date"
-                className="input-text"
+                className="w-full rounded-md border border-[#cbd6d0] bg-[#fafcfb] px-3 py-2.25 text-[12.5px] text-[#17242f]"
                 value={targetDate}
                 onChange={(event) => setTargetDate(event.target.value)}
               />
             </div>
             <div>
-              <label className="field-label">Priority</label>
+              <label className="mb-1.25 block text-[11.5px] font-bold text-[#384b59]">Priority</label>
               <select
-                className="input-text"
+                className="w-full rounded-md border border-[#cbd6d0] bg-[#fafcfb] px-3 py-2.25 text-[12.5px] text-[#17242f]"
                 value={priority}
                 onChange={(event) => setPriority(event.target.value as ProjectPriority)}
               >
@@ -124,32 +122,35 @@ const NewProject = () => {
             </div>
           </div>
 
-          <div style={{ marginTop: 14 }}>
-            <label className="field-label">Attach a File (optional)</label>
-            <input ref={fileInput} type="file" multiple style={{ display: "none" }} onChange={onFilesChosen} />
-            <div className="upload-dropzone" onClick={() => fileInput.current?.click()}>
-              <Paperclip size={22} strokeWidth={2} color="#2563eb" style={{ display: "block", margin: "0 auto 4px" }} />
-              <div className="upload-text">Click to upload a file</div>
-              <div className="upload-sub">Any file type · up to 25MB each · multiple files supported</div>
+          <div className="mt-3.5">
+            <label className="mb-1.25 block text-[11.5px] font-bold text-[#384b59]">Attach a File (optional)</label>
+            <input ref={fileInput} type="file" multiple className="hidden" onChange={onFilesChosen} />
+            <div
+              className="cursor-pointer rounded-lg border-[1.5px] border-dashed border-[#cbd6d0] bg-[#fafcfb] px-3 py-4.5 text-center transition-all duration-150 hover:border-[#2563eb] hover:bg-[#f0f7ff]"
+              onClick={() => fileInput.current?.click()}
+            >
+              <Paperclip size={22} strokeWidth={2} color="#2563eb" className="mx-auto mb-1 block" />
+              <div className="text-xs font-semibold text-[#1e293b]">Click to upload a file</div>
+              <div className="mt-0.5 text-[10px] text-[#8496a3]">Any file type · up to 25MB each · multiple files supported</div>
             </div>
 
             {files.map((file, index) => {
               const badge = fileBadgeFor(file.name);
               return (
-                <div className="doc-preview-tile" style={{ marginTop: 8 }} key={`${file.name}-${index}`}>
-                  <div className="doc-badge-icon" style={{ background: badge.color }}>
+                <div className="mt-2 flex items-center gap-2.5 rounded-md border border-[#cbd6d0] bg-[#f8fafc] px-3 py-2.5" key={`${file.name}-${index}`}>
+                  <div
+                    className="flex h-8.5 w-8.5 items-center justify-center rounded-md text-[10px] font-bold text-white"
+                    style={{ background: badge.color }}
+                  >
                     {badge.label}
                   </div>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div className="doc-name" style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                      {file.name}
-                    </div>
-                    <div className="doc-size">{formatFileSize(file.size)}</div>
+                  <div className="min-w-0 flex-1">
+                    <div className="overflow-hidden text-xs font-bold text-ellipsis whitespace-nowrap text-[#17242f]">{file.name}</div>
+                    <div className="mt-px text-[10.5px] text-[#7a8e9b]">{formatFileSize(file.size)}</div>
                   </div>
                   <button
-                    className="btn-remove-preview"
+                    className="inline-flex cursor-pointer items-center gap-1 border-none bg-none text-xs font-semibold text-[#dc2626]"
                     onClick={() => setFiles((previous) => previous.filter((_, i) => i !== index))}
-                    style={{ display: "inline-flex", alignItems: "center", gap: 4 }}
                   >
                     <X size={13} strokeWidth={2.5} /> Remove
                   </button>
@@ -158,11 +159,14 @@ const NewProject = () => {
             })}
           </div>
 
-          <div className="add-client-actions">
-            <Link href="/projects" className="btn-draft" style={{ textDecoration: "none" }}>
+          <div className="mt-5 flex justify-end gap-2.5 border-t border-[#eef3ef] pt-4">
+            <Link href="/projects" className="cursor-pointer rounded-md border border-[#cfdcd6] bg-white px-4.5 py-2.25 text-[13px] font-semibold text-[#273847] no-underline">
               Cancel
             </Link>
-            <button className="btn-save-client" onClick={submit}>
+            <button
+              className="inline-flex cursor-pointer items-center gap-1.5 rounded-md border-none bg-[#2563eb] px-4.5 py-2.5 text-[12.5px] font-bold text-white"
+              onClick={submit}
+            >
               Create Project
             </button>
           </div>

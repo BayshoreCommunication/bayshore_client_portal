@@ -9,6 +9,9 @@ import { useSessionUser } from "@/component/shared/SessionUser";
 
 const EMPTY_FORM = { cardholder: "", cardNumber: "", expiry: "", cvc: "", zip: "" };
 
+const inputClass = "w-full rounded-md border border-[#cbd6d0] bg-[#fafcfb] px-3 py-2.25 text-[12.5px] text-[#17242f]";
+const labelClass = "mb-1.25 block text-[11.5px] font-bold text-[#384b59]";
+
 const Checkout = () => {
   const { pending, checkout } = useServices();
   const { name } = useSessionUser();
@@ -35,25 +38,24 @@ const Checkout = () => {
   if (paid) {
     return (
       <>
-        <div className="breadcrumb-row">
-          <div className="breadcrumbs">
-            <Link href="/services" className="breadcrumb-link">
+        <div className="flex items-center justify-between">
+          <div className="text-[13px] text-[#6a7b8a]">
+            <Link href="/services" className="cursor-pointer font-bold text-[#18232c] hover:underline">
               Services
             </Link>{" "}
-            / <b>Payment</b>
+            / <b className="text-[#18232c]">Payment</b>
           </div>
         </div>
 
-        <div className="payment-success-card">
+        <div className="mt-4.5 flex flex-col items-center rounded-[10px] border border-[#dbe3de] bg-white px-6 py-15 text-center">
           <CheckCircle2 size={46} strokeWidth={1.75} color="#16a34a" />
-          <div style={{ fontSize: 19, fontWeight: 700, color: "#0d1e2c", marginTop: 14 }}>Payment Successful!</div>
-          <div className="dash-pending-sub" style={{ marginTop: 8, maxWidth: 360 }}>
+          <div className="mt-3.5 text-[19px] font-bold text-[#0d1e2c]">Payment Successful!</div>
+          <div className="mt-2 max-w-90 text-[11px] text-[#7a8e9b]">
             {paid.join(", ")} — now active on your account. Your specialist will reach out shortly to get started.
           </div>
           <Link
             href="/services"
-            className="btn-view-report"
-            style={{ marginTop: 20, textDecoration: "none", display: "inline-block" }}
+            className="mt-5 inline-block cursor-pointer rounded-md bg-[#0d1e2e] px-4 py-2.25 text-[12.5px] font-bold whitespace-nowrap text-white no-underline"
           >
             Back to My Services
           </Link>
@@ -64,43 +66,35 @@ const Checkout = () => {
 
   return (
     <>
-      <div className="breadcrumb-row">
-        <div className="breadcrumbs">
-          <Link href="/services" className="breadcrumb-link">
+      <div className="flex items-center justify-between">
+        <div className="text-[13px] text-[#6a7b8a]">
+          <Link href="/services" className="cursor-pointer font-bold text-[#18232c] hover:underline">
             Services
           </Link>{" "}
-          / <b>Payment</b>
+          / <b className="text-[#18232c]">Payment</b>
         </div>
       </div>
 
       <div>
-        <div className="page-title">Complete Your Payment</div>
-        <div className="page-desc">
-          Confirm the services below and enter your payment details to activate them.
-        </div>
+        <div className="font-serif text-[26px] font-bold text-[#0b1a26]">Complete Your Payment</div>
+        <div className="mt-1 text-[13px] text-[#657787]">Confirm the services below and enter your payment details to activate them.</div>
       </div>
 
-      <div className="dash-main-grid" style={{ gridTemplateColumns: "1.6fr 1fr" }}>
-        <div className="section-card">
-          <div className="section-title" style={{ marginBottom: 16, display: "flex", alignItems: "center", gap: 8 }}>
+      <div className="grid grid-cols-[1.6fr_1fr] items-start gap-5">
+        <div className="rounded-lg border border-[#dbe3de] bg-white p-5">
+          <div className="mb-4 flex items-center gap-2 text-[15px] font-bold text-[#0d1e2c]">
             <CreditCard size={17} strokeWidth={2} /> Payment Details
           </div>
 
-          <label className="field-label">Cardholder Name</label>
-          <input
-            type="text"
-            className="input-text"
-            placeholder={name}
-            value={form.cardholder}
-            onChange={update("cardholder")}
-          />
+          <label className={labelClass}>Cardholder Name</label>
+          <input type="text" className={inputClass} placeholder={name} value={form.cardholder} onChange={update("cardholder")} />
 
-          <div className="form-grid-2" style={{ marginTop: 14 }}>
+          <div className="mt-3.5 grid grid-cols-2 gap-4">
             <div>
-              <label className="field-label">Card Number</label>
+              <label className={labelClass}>Card Number</label>
               <input
                 type="text"
-                className="input-text"
+                className={inputClass}
                 placeholder="4242 4242 4242 4242"
                 inputMode="numeric"
                 value={form.cardNumber}
@@ -108,86 +102,62 @@ const Checkout = () => {
               />
             </div>
             <div>
-              <label className="field-label">Expiry</label>
-              <input
-                type="text"
-                className="input-text"
-                placeholder="MM / YY"
-                value={form.expiry}
-                onChange={update("expiry")}
-              />
+              <label className={labelClass}>Expiry</label>
+              <input type="text" className={inputClass} placeholder="MM / YY" value={form.expiry} onChange={update("expiry")} />
             </div>
           </div>
 
-          <div className="form-grid-2" style={{ marginTop: 14 }}>
+          <div className="mt-3.5 grid grid-cols-2 gap-4">
             <div>
-              <label className="field-label">CVC</label>
-              <input
-                type="text"
-                className="input-text"
-                placeholder="123"
-                inputMode="numeric"
-                value={form.cvc}
-                onChange={update("cvc")}
-              />
+              <label className={labelClass}>CVC</label>
+              <input type="text" className={inputClass} placeholder="123" inputMode="numeric" value={form.cvc} onChange={update("cvc")} />
             </div>
             <div>
-              <label className="field-label">Billing ZIP</label>
-              <input
-                type="text"
-                className="input-text"
-                placeholder="33602"
-                value={form.zip}
-                onChange={update("zip")}
-              />
+              <label className={labelClass}>Billing ZIP</label>
+              <input type="text" className={inputClass} placeholder="33602" value={form.zip} onChange={update("zip")} />
             </div>
           </div>
 
-          {error ? (
-            <div style={{ marginTop: 12, fontSize: 12, fontWeight: 600, color: "#b91c1c" }}>{error}</div>
-          ) : null}
+          {error ? <div className="mt-3 text-xs font-semibold text-[#b91c1c]">{error}</div> : null}
 
-          <div className="field-hint" style={{ marginTop: 12, display: "flex", alignItems: "center", gap: 6 }}>
+          <div className="mt-3 flex items-center gap-1.5 text-[10.5px] text-[#7a8e9b] italic">
             <Lock size={12} strokeWidth={2} /> This is a prototype — no real payment is processed.
           </div>
         </div>
 
-        <div className="side-card">
-          <div className="side-title" style={{ marginBottom: 12 }}>
-            Order Summary
-          </div>
-          <div className="order-summary-list">
+        <div className="rounded-lg border border-[#dbe3de] bg-white px-5 py-4.5">
+          <div className="mb-3 text-sm font-bold text-[#0d1e2c]">Order Summary</div>
+          <div className="flex flex-col gap-2.5">
             {pending.length === 0 ? (
-              <div className="order-summary-empty" style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <div className="flex items-center gap-2 text-xs text-[#9aacb8] italic">
                 <ShoppingCart size={14} strokeWidth={2} /> No services selected.{" "}
-                <Link href="/services" style={{ color: "#2563eb", fontStyle: "normal", fontWeight: 600 }}>
+                <Link href="/services" className="font-semibold text-[#2563eb] not-italic">
                   Choose services
                 </Link>
               </div>
             ) : (
               <>
-                <div className="order-summary-row">
-                  <span>
+                <div className="flex justify-between border-b border-[#eef3ef] pb-2.5 text-[12.5px] text-[#17242f]">
+                  <span className="font-semibold">
                     {pending.length} selected service{pending.length === 1 ? "" : "s"}
                   </span>
                   <span />
                 </div>
                 {pending.map((item) => (
-                  <div className="order-summary-row" key={item.id}>
-                    <span>{item.name}</span>
-                    <span style={{ color: "#9aacb8", fontWeight: 500 }}>{categoryTitle(item.category)}</span>
+                  <div className="flex justify-between border-b border-[#eef3ef] pb-2.5 text-[12.5px] text-[#17242f]" key={item.id}>
+                    <span className="font-semibold">{item.name}</span>
+                    <span className="font-medium text-[#9aacb8]">{categoryTitle(item.category)}</span>
                   </div>
                 ))}
               </>
             )}
           </div>
-          <div className="order-summary-total">
+          <div className="mt-3 flex justify-between border-t border-[#dbe3de] pt-3 text-sm font-bold text-[#0d1e2c]">
             <span>Total</span>
             <span>${formatMoney(total)}/mo</span>
           </div>
           <button
-            className="btn-save-client"
-            style={{ width: "100%", marginTop: 16, justifyContent: "center", opacity: pending.length === 0 ? 0.5 : 1 }}
+            className="mt-4 flex w-full cursor-pointer items-center justify-center gap-1.5 rounded-md border-none bg-[#2563eb] px-4.5 py-2.5 text-[12.5px] font-bold text-white disabled:opacity-50"
             disabled={pending.length === 0}
             onClick={confirmPayment}
           >
@@ -195,8 +165,7 @@ const Checkout = () => {
           </button>
           <Link
             href="/services"
-            className="btn-draft"
-            style={{ width: "100%", marginTop: 8, display: "block", textAlign: "center", textDecoration: "none" }}
+            className="mt-2 block w-full cursor-pointer rounded-md border border-[#cfdcd6] bg-white px-4.5 py-2.25 text-center text-[13px] font-semibold text-[#273847] no-underline"
           >
             Cancel
           </Link>

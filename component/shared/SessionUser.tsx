@@ -20,13 +20,13 @@ export const UserBadge = () => {
   const { name, initials } = useSessionUser();
 
   return (
-    <div className="user-badge">
-      <div className="avatar" style={{ background: "#0b1522" }}>
+    <div className="flex items-center gap-2.5 rounded-full border border-[#dce4e0] bg-white py-1.25 pr-3.5 pl-1.5">
+      <div className="flex h-[30px] w-[30px] items-center justify-center rounded-full bg-[#0b1522] text-xs font-bold text-white">
         {initials}
       </div>
       <div>
-        <div className="user-name">{name}</div>
-        <div className="user-role">Client Account</div>
+        <div className="text-[12.5px] leading-[1.1] font-bold">{name}</div>
+        <div className="text-[10.5px] text-[#6e808f]">Client Account</div>
       </div>
     </div>
   );
