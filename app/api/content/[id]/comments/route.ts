@@ -1,7 +1,6 @@
 import { revalidatePath } from "next/cache";
 import { auth } from "@/auth";
-
-const BACKEND_API_URL = process.env.BACKEND_API_URL ?? "http://localhost:8000/api/v1";
+import { BACKEND_API_URL } from "@/lib/backend";
 
 // The client's feedback on a piece — text and attached images, videos or documents —
 // streamed on to the backend's POST /content/me/:id/comments, which also moves the

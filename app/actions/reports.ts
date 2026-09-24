@@ -1,8 +1,8 @@
 "use server";
 
 import { auth } from "@/auth";
+import { BACKEND_API_URL } from "@/lib/backend";
 
-const BACKEND_API_URL = process.env.BACKEND_API_URL ?? "http://localhost:8000/api/v1";
 const API = `${BACKEND_API_URL}/reports/me`;
 
 export type ReportPeriodType = "weekly" | "monthly";
