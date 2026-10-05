@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState, useTransition, type DragEvent } from "react";
+import { useEffect, useRef, useState, useTransition, type DragEvent, type KeyboardEvent } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
@@ -21,8 +21,15 @@ import {
   SendHorizontal,
   Tag,
   User,
+  X,
+  type LucideIcon,
 } from "lucide-react";
-import { approveMyContentAction, type ContentCommentResponse, type ContentItem } from "@/app/actions/content";
+import {
+  approveMyContentAction,
+  updateMyContentAction,
+  type ContentCommentResponse,
+  type ContentItem,
+} from "@/app/actions/content";
 import { useSessionUser } from "@/component/shared/SessionUser";
 import { poppins } from "@/component/shared/fonts";
 import {
@@ -38,7 +45,8 @@ import {
   StatusBadge,
   useAttachments,
 } from "./contentParts";
-import { CONTENT_STATUSES, batchLabelOf, formatDate, personNameOf, shortDate, typeOf } from "./contentUi";
+import { CONTENT_STATUSES, batchLabelOf, formatDate, personNameOf, piecesOf, shortDate, typeOf } from "./contentUi";
+import GroupPieces, { forgetPieces } from "./GroupPieces";
 
 // Sends feedback to the upload route, reporting progress (0–100) as files go up.
 const postFeedback = (id: string, form: FormData, onProgress: (percent: number) => void) =>
@@ -67,6 +75,231 @@ const STATUS_HELP = {
 // One piece the team sent: the files, the text, and the conversation. The client
 // approves it or asks for changes here — asking always goes with a comment, which
 // moves the piece to "In Revision".
+// ── Caption and tags, which the client can rewrite ───────────────────────────
+
+// The backend's limits (validators/content.validator.ts).
+const CAPTION_MAX = 2000;
+const TAGS_MAX = 20;
+const TAG_MAX = 50;
+
+const fieldClass =
+  "w-full rounded-lg border border-[#e2e5e9] bg-white px-3 py-2.5 text-[12.5px] text-[#1f2530] outline-none placeholder:text-[#9ca3af] focus:border-[#2f5fd8] focus:ring-3 focus:ring-[#2f5fd8]/15";
+const fieldLabel = "mb-1.5 flex items-baseline justify-between text-[12px] font-semibold text-[#0b0c24]";
+
+// The piece's words and its other details. While the piece is still open (not approved),
+// the client can rewrite the caption and tags themselves; saving leaves a note on the
+// comments so the team sees it. Page, subject and the like stay as BayShore set them.
+const TextAndDetails = ({
+  item,
+  extras,
+  editable,
+  onSaved,
+}: {
+  item: ContentItem;
+  extras: { icon: LucideIcon; label: string; value: string }[];
+  editable: boolean;
+  onSaved: () => void;
+}) => {
+  const [editing, setEditing] = useState(false);
+  const [caption, setCaption] = useState("");
+  const [tags, setTags] = useState<string[]>([]);
+  const [entry, setEntry] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  if (!editable && !item.caption && item.tags.length === 0 && extras.length === 0) return null;
+
+  const startEditing = () => {
+    setCaption(item.caption ?? "");
+    setTags(item.tags);
+    setEntry("");
+    setError(null);
+    setEditing(true);
+  };
+
+  // Adds what is typed in the tag box; returns the list as it then stands, or null if it can't be added.
+  const withEntry = (current: string[]) => {
+    const tag = entry.trim();
+    if (!tag || current.includes(tag)) return current;
+    if (tag.length > TAG_MAX) {
+      setError(`A tag can be at most ${TAG_MAX} characters.`);
+      return null;
+    }
+    if (current.length >= TAGS_MAX) {
+      setError(`You can add at most ${TAGS_MAX} tags.`);
+      return null;
+    }
+    return [...current, tag];
+  };
+
+  const addTag = () => {
+    const next = withEntry(tags);
+    if (!next) return;
+    setError(null);
+    setTags(next);
+    setEntry("");
+  };
+
+  const onTagKey = (event: KeyboardEvent<HTMLInputElement>) => {
+    if (event.key === "Enter" || event.key === ",") {
+      event.preventDefault();
+      addTag();
+    } else if (event.key === "Backspace" && !entry && tags.length) {
+      setTags(tags.slice(0, -1));
+    }
+  };
+
+  const save = async () => {
+    // A tag still sitting in the box counts.
+    const next = withEntry(tags);
+    if (!next) return;
+    setError(null);
+    setSaving(true);
+    const result = await updateMyContentAction(item._id, { caption: caption.trim(), tags: next });
+    setSaving(false);
+    if (!result.ok) {
+      setError(result.error ?? "Couldn't save your changes. Please try again.");
+      return;
+    }
+    setEditing(false);
+    onSaved();
+  };
+
+  return (
+    <Card
+      badge={{ icon: Tag, ...BLUE }}
+      title="Text & Details"
+      aside={
+        editable && !editing ? (
+          <button
+            type="button"
+            onClick={startEditing}
+            className="inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-lg border border-[#e2e5e9] bg-white px-3 text-[11.5px] font-medium text-[#1f2530] hover:border-[#2f5fd8] hover:text-[#2f5fd8]"
+          >
+            <Pencil size={12} strokeWidth={2} /> Edit caption &amp; tags
+          </button>
+        ) : null
+      }
+    >
+      {extras.length ? (
+        <div className="mb-4 grid gap-2.5 sm:grid-cols-2">
+          {extras.map((entry) => (
+            <div key={entry.label} className="rounded-lg border border-[#eceef1] bg-[#fafbfc] px-3 py-2.5">
+              <div className="flex items-center gap-1.5 text-[10.5px] font-medium text-[#6b7280] uppercase">
+                <entry.icon size={12} strokeWidth={2} /> {entry.label}
+              </div>
+              <div className="mt-1 text-[12.5px] font-medium break-words text-[#1f2530]">{entry.value}</div>
+            </div>
+          ))}
+        </div>
+      ) : null}
+
+      {editing ? (
+        <div className="flex flex-col gap-4">
+          <div>
+            <label htmlFor="content-caption" className={fieldLabel}>
+              Caption
+              <span className="text-[10.5px] font-normal text-[#6b7280]">
+                {caption.length} / {CAPTION_MAX}
+              </span>
+            </label>
+            <textarea
+              id="content-caption"
+              rows={6}
+              maxLength={CAPTION_MAX}
+              className={`${fieldClass} resize-y leading-[1.6]`}
+              placeholder="The text that goes with this piece…"
+              value={caption}
+              onChange={(event) => setCaption(event.target.value)}
+              disabled={saving}
+            />
+          </div>
+
+          <div>
+            <label htmlFor="content-tags" className={fieldLabel}>
+              Tags
+              <span className="text-[10.5px] font-normal text-[#6b7280]">Press Enter or comma to add</span>
+            </label>
+            <div className="flex flex-wrap items-center gap-1.5 rounded-lg border border-[#e2e5e9] bg-white px-2 py-2 focus-within:border-[#2f5fd8] focus-within:ring-3 focus-within:ring-[#2f5fd8]/15">
+              {tags.map((tag) => (
+                <span key={tag} className="inline-flex items-center gap-1 rounded-md bg-[#f3f4f6] py-1 pr-1 pl-2.5 text-[11px] font-medium text-[#4b5260]">
+                  {tag}
+                  <button
+                    type="button"
+                    aria-label={`Remove ${tag}`}
+                    className="flex h-4 w-4 cursor-pointer items-center justify-center rounded text-[#6b7280] hover:bg-[#e2e5e9] hover:text-[#0b0c24]"
+                    onClick={() => setTags(tags.filter((other) => other !== tag))}
+                    disabled={saving}
+                  >
+                    <X size={11} strokeWidth={2.5} />
+                  </button>
+                </span>
+              ))}
+              <input
+                id="content-tags"
+                type="text"
+                className="min-w-30 flex-1 border-none bg-transparent px-1 py-1 text-[12.5px] text-[#1f2530] outline-none placeholder:text-[#9ca3af]"
+                placeholder={tags.length ? "Add another…" : "Add a tag…"}
+                value={entry}
+                onChange={(event) => setEntry(event.target.value)}
+                onKeyDown={onTagKey}
+                onBlur={addTag}
+                disabled={saving}
+              />
+            </div>
+          </div>
+
+          {error ? (
+            <div role="alert" className="rounded-lg border border-[#f5c2c2] bg-[#fdecec] px-3 py-2 text-[12px] font-medium text-[#b42318]">
+              {error}
+            </div>
+          ) : null}
+
+          <div className="flex items-center justify-between gap-3">
+            <span className="text-[11px] text-[#6b7280]">BayShore will see that you changed the text.</span>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                className="h-9 cursor-pointer rounded-lg border border-[#e2e5e9] bg-white px-4 text-[12px] font-medium text-[#1f2530] hover:bg-[#f3f4f6] disabled:cursor-default disabled:opacity-50"
+                onClick={() => setEditing(false)}
+                disabled={saving}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="inline-flex h-9 cursor-pointer items-center gap-1.5 rounded-lg bg-[#0b0c24] px-4 text-[12px] font-medium text-white hover:bg-[#1e2140] disabled:cursor-wait disabled:opacity-70"
+                onClick={save}
+                disabled={saving}
+                aria-busy={saving}
+              >
+                {saving ? <Loader2 size={13} strokeWidth={2.5} className="animate-spin" /> : <Check size={13} strokeWidth={2.5} />}
+                {saving ? "Saving…" : "Save changes"}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : (
+        <>
+          {item.caption ? <p className="text-[13px] leading-[1.7] whitespace-pre-line text-[#374151]">{item.caption}</p> : null}
+          {item.tags.length > 0 ? (
+            <div className={`flex flex-wrap gap-2 ${item.caption ? "mt-4" : ""}`}>
+              {item.tags.map((tag) => (
+                <span key={tag} className="rounded-md bg-[#f3f4f6] px-2.5 py-1 text-[11px] font-medium text-[#4b5260]">
+                  {tag}
+                </span>
+              ))}
+            </div>
+          ) : null}
+          {!item.caption && item.tags.length === 0 ? (
+            <p className="text-[12.5px] text-[#6b7280]">No caption or tags yet{editable ? " — you can add them." : "."}</p>
+          ) : null}
+        </>
+      )}
+    </Card>
+  );
+};
+
 const ContentDetails = ({ item, related }: { item: ContentItem; related: ContentItem[] }) => {
   const router = useRouter();
   const { name, initials } = useSessionUser();
@@ -89,6 +322,7 @@ const ContentDetails = ({ item, related }: { item: ContentItem; related: Content
   const type = typeOf(item);
   const isApproved = status === "approved";
   const batch = batchLabelOf(item);
+  const pieces = piecesOf(item);
   const sending = progress !== null;
   const busy = approving || sending || isRefreshing;
   const approveLoading = approving || (isRefreshing && action === "approve");
@@ -97,6 +331,9 @@ const ContentDetails = ({ item, related }: { item: ContentItem; related: Content
   const canSend = hasFeedback && !busy;
 
   const refresh = () => startTransition(() => router.refresh());
+
+  // This piece is on screen now — whichever piece of its group was being headed for, it has arrived.
+  useEffect(() => forgetPieces(), [item._id]);
 
   const approve = async () => {
     setError(null);
@@ -171,12 +408,6 @@ const ContentDetails = ({ item, related }: { item: ContentItem; related: Content
     <div className={`${poppins.className} flex flex-col gap-4.5`}>
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div className="min-w-0">
-          <div className="mb-1 text-[12px] text-[#4b5260]">
-            <Link href="/content" className="hover:underline">
-              Content
-            </Link>{" "}
-            / <span className="font-semibold text-[#0b0c24]">{item.title}</span>
-          </div>
           <h1 className="text-[28px] leading-tight font-bold text-[#0b0c24]">{item.title}</h1>
           <div className="mt-2 flex flex-wrap items-center gap-2 text-[12px] text-[#4b5563]">
             <StatusBadge status={status} />
@@ -224,38 +455,23 @@ const ContentDetails = ({ item, related }: { item: ContentItem; related: Content
         </div>
       ) : null}
 
+      {pieces.length > 1 ? <GroupPieces pieces={pieces} currentId={item._id} /> : null}
+
       <div className="grid items-start gap-4.5 lg:grid-cols-[minmax(0,1fr)_330px]">
         <div className="flex flex-col gap-4.5">
           <Card badge={type} title="Preview">
             <Preview item={item} />
           </Card>
 
-          {item.caption || item.tags.length > 0 || extras.length > 0 ? (
-            <Card badge={{ icon: Tag, ...BLUE }} title="Text & Details">
-              {extras.length ? (
-                <div className="mb-4 grid gap-2.5 sm:grid-cols-2">
-                  {extras.map((entry) => (
-                    <div key={entry.label} className="rounded-lg border border-[#eceef1] bg-[#fafbfc] px-3 py-2.5">
-                      <div className="flex items-center gap-1.5 text-[10.5px] font-medium text-[#6b7280] uppercase">
-                        <entry.icon size={12} strokeWidth={2} /> {entry.label}
-                      </div>
-                      <div className="mt-1 text-[12.5px] font-medium break-words text-[#1f2530]">{entry.value}</div>
-                    </div>
-                  ))}
-                </div>
-              ) : null}
-              {item.caption ? <p className="text-[13px] leading-[1.7] whitespace-pre-line text-[#374151]">{item.caption}</p> : null}
-              {item.tags.length > 0 ? (
-                <div className={`flex flex-wrap gap-2 ${item.caption ? "mt-4" : ""}`}>
-                  {item.tags.map((tag) => (
-                    <span key={tag} className="rounded-md bg-[#f3f4f6] px-2.5 py-1 text-[11px] font-medium text-[#4b5260]">
-                      {tag}
-                    </span>
-                  ))}
-                </div>
-              ) : null}
-            </Card>
-          ) : null}
+          <TextAndDetails
+            item={item}
+            extras={extras}
+            editable={!isApproved}
+            onSaved={() => {
+              setNotice("Your caption and tags are saved — BayShore can see the change.");
+              refresh();
+            }}
+          />
 
           <Card
             badge={{ icon: MessageSquare, ...BLUE }}

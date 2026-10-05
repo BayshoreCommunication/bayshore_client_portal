@@ -1,366 +1,599 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { Fragment, useMemo, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import {
   ArrowRight,
+  Check,
   ChevronDown,
-  ChevronRight,
-  MapPin,
-  MessageSquare,
+  CircleDollarSign,
+  Layers,
+  ListChecks,
+  MessageCircle,
+  PieChart,
   Plus,
+  RotateCcw,
   Search,
-  ShieldCheck,
+  SearchX,
+  Sparkles,
+  X,
   type LucideIcon,
 } from "lucide-react";
-import {
-  CUSTOM_REQUEST_PRICE,
-  TIMELINES,
-  formatMoney,
-  serviceCategories,
-  type ServiceCategory,
-  type ServiceCategoryKey,
-} from "./data";
-import { useServices, type ServiceItem } from "./store";
+import type { CatalogService, MyServicesData, ServicePlan } from "@/app/actions/service";
+import { poppins } from "@/component/shared/fonts";
+import { useServiceCart, type ServiceCart } from "./cart";
+import { SERVICE_PLANS, SERVICE_PLAN_KEYS, dollars, plural, serviceColorOf, serviceIconOf } from "./serviceUi";
+import TriCheckbox from "./TriCheckbox";
 
-const CATEGORY_ICONS: Record<ServiceCategoryKey, LucideIcon> = {
-  seo: Search,
-  gmb: MapPin,
-  social: MessageSquare,
-  web: ShieldCheck,
-};
+const inputClass =
+  "h-9.5 w-full cursor-pointer appearance-none rounded-lg border bg-white pr-8 pl-3 text-[12px] font-medium text-[#1f2530] outline-none focus:border-[#9aa3af]";
 
-const inputClass = "w-full rounded-md border border-[#cbd6d0] bg-[#fafcfb] px-3 py-2.25 text-[12.5px] text-[#17242f]";
+const cardClass = "rounded-2xl border border-[#e6e8eb] bg-white shadow-[0_2px_6px_rgba(15,23,42,0.05)]";
 
-const CategoryCard = ({
-  category,
-  items,
-  isPurchased,
-  onToggle,
-  onRemoveCustom,
-  onRequestCustom,
+const thClass = "bg-[#f3f4f6] px-3 py-2.5 text-left text-[11.5px] font-medium whitespace-nowrap text-[#4b5260]";
+const tdClass = "border-b border-[#eef0f2] px-3 py-3 text-[12px] whitespace-nowrap text-[#1f2530]";
+
+const darkButtonClass =
+  "flex cursor-pointer items-center gap-1.5 rounded-lg bg-[#0b0c24] text-[12.5px] font-medium text-white no-underline hover:bg-[#1e2140]";
+const errorBannerClass = "rounded-xl border border-[#f5c2c2] bg-[#fdecec] px-4 py-3 text-[12.5px] font-medium text-[#b42318]";
+
+type Show = "all" | "mine" | "available";
+// A row of the table: a service on offer, and the sub-services (by id) the client already takes.
+type Row = { service: CatalogService; included: string[] };
+
+// ── Small pieces ─────────────────────────────────────────────────────────────
+
+const SelectBox = ({
+  label,
+  value,
+  onChange,
+  children,
 }: {
-  category: ServiceCategory;
-  items: ServiceItem[];
-  isPurchased: (id: string) => boolean;
-  onToggle: (item: ServiceItem, checked: boolean) => void;
-  onRemoveCustom: (id: string) => void;
-  onRequestCustom: (item: ServiceItem) => void;
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  children: React.ReactNode;
+}) => (
+  <div className="relative w-full sm:w-44">
+    <select
+      // A chosen filter gets a darker border so it's clear the list is narrowed.
+      className={`${inputClass} ${value === "all" ? "border-[#e2e5e9]" : "border-[#0b0c24]"}`}
+      aria-label={label}
+      value={value}
+      onChange={(event) => onChange(event.target.value)}
+    >
+      {children}
+    </select>
+    <ChevronDown size={14} strokeWidth={2} className="pointer-events-none absolute top-1/2 right-3 -translate-y-1/2 text-[#1f2530]" />
+  </div>
+);
+
+const SummaryTile = ({
+  icon: Icon,
+  label,
+  sub,
+  value,
+  color,
+  background,
+}: {
+  icon: LucideIcon;
+  label: string;
+  sub: string;
+  value: string;
+  color: string;
+  background: string;
+}) => (
+  <div className={`${cardClass} px-4 pt-3.5 pb-4`}>
+    <div className="flex items-center gap-3">
+      <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg" style={{ background, color }}>
+        <Icon size={19} strokeWidth={2} />
+      </span>
+      <div className="min-w-0">
+        <div className="truncate text-[12px] font-semibold text-[#0b0c24] uppercase">{label}</div>
+        <div className="mt-0.5 truncate text-[11px] text-[#6b7280]">{sub}</div>
+      </div>
+    </div>
+    <div className="mt-3 text-[30px] leading-none font-semibold text-[#0b0c24]">{value}</div>
+  </div>
+);
+
+// ── The Services page ────────────────────────────────────────────────────────
+
+// Everything BayShore offers in one list: the services this client takes (and what
+// they pay each month), and the ones they could add. Sub-services they don't have
+// yet can be ticked here; they're added once the payment page is confirmed
+// (component/payments/Checkout.tsx). Taking something away goes through their
+// account manager.
+// `mine` / `catalog` are missing when they couldn't be loaded; the matching error says why.
+const Services = ({
+  mine,
+  mineError,
+  catalog,
+  catalogError,
+}: {
+  mine?: MyServicesData;
+  mineError?: string;
+  catalog?: CatalogService[];
+  catalogError?: string;
 }) => {
-  const [open, setOpen] = useState(false);
-  const [formOpen, setFormOpen] = useState(false);
-  const [name, setName] = useState("");
-  const [description, setDescription] = useState("");
-  const [timeline, setTimeline] = useState(TIMELINES[0]);
-  const [nameMissing, setNameMissing] = useState(false);
+  const [show, setShow] = useState<Show>("all");
+  const [plan, setPlan] = useState<ServicePlan | "all">("all");
+  const [query, setQuery] = useState("");
+  const router = useRouter();
+  const [openId, setOpenId] = useState<string | null>(null);
+  // What's ticked to add (never sub-services already taken). Kept in the cart so the
+  // payment page gets it.
+  const { cart: picks, setCart: setPicks } = useServiceCart();
+  const [confirming, setConfirming] = useState(false);
 
-  const Icon = CATEGORY_ICONS[category.key];
-  const total = items.reduce((sum, item) => sum + item.price, 0);
-  const customItems = items.filter((item) => item.custom);
-  const selectedIds = new Set(items.map((item) => item.id));
+  const monthlyTotal = mine?.monthlyTotal ?? 0;
 
-  const resetForm = () => {
-    setFormOpen(false);
-    setName("");
-    setDescription("");
-    setTimeline(TIMELINES[0]);
-    setNameMissing(false);
-  };
-
-  const submitCustom = () => {
-    if (!name.trim()) {
-      setNameMissing(true);
-      return;
+  // Every service on offer with what the client has of it. Without the catalog,
+  // only their own services can be listed (with just the sub-services they take).
+  const rows: Row[] = useMemo(() => {
+    const taken = new Map((mine?.services ?? []).map((entry) => [entry.service._id, entry]));
+    if (catalog) {
+      return catalog.map((service) => ({ service, included: taken.get(service._id)?.subServices.map((item) => item.subService) ?? [] }));
     }
-    onRequestCustom({
-      id: `custom:${category.key}:${Date.now()}`,
-      category: category.key,
-      name: name.trim(),
-      price: CUSTOM_REQUEST_PRICE,
-      custom: true,
-      description: description.trim() || undefined,
-      timeline,
-    });
-    resetForm();
+    return (mine?.services ?? []).map((entry) => ({
+      service: {
+        ...entry.service,
+        subServices: entry.subServices.map((item) => ({ _id: item.subService, name: item.name, price: item.price })),
+        monthlyPrice: entry.monthlyPrice,
+      },
+      included: entry.subServices.map((item) => item.subService),
+    }));
+  }, [mine, catalog]);
+
+  const filtered = useMemo(() => {
+    const needle = query.trim().toLowerCase();
+    return rows.filter(
+      ({ service, included }) =>
+        (show === "all" || (show === "mine" ? included.length > 0 : included.length < service.subServices.length)) &&
+        (plan === "all" || service.plan === plan) &&
+        // Search looks inside the services too, so "backlink" finds SEO.
+        (!needle || [service.title, service.description ?? "", ...service.subServices.map((item) => item.name)].join(" ").toLowerCase().includes(needle)),
+    );
+  }, [rows, show, plan, query]);
+
+  const priceOf = (service: CatalogService, ids: string[]) =>
+    service.subServices.reduce((sum, item) => (ids.includes(item._id) ? sum + item.price : sum), 0);
+
+  // What's ticked that can still be added — a kept cart may name something the
+  // client has since been given, or that is no longer offered.
+  const tickedOf = ({ service, included }: Row) =>
+    (picks[service._id] ?? []).filter((id) => !included.includes(id) && service.subServices.some((item) => item._id === id));
+  const picked = rows.filter((row) => tickedOf(row).length);
+  const pickedCount = picked.reduce((sum, row) => sum + tickedOf(row).length, 0);
+  const pickedTotal = picked.reduce((sum, row) => sum + priceOf(row.service, tickedOf(row)), 0);
+
+  const myCount = rows.filter((row) => row.included.length > 0).length;
+  const includedCount = rows.reduce((sum, row) => sum + row.included.length, 0);
+  const availableCount = rows.filter((row) => row.included.length === 0).length;
+
+  const hasFilters = show !== "all" || plan !== "all" || query.trim() !== "";
+  const clearFilters = () => {
+    setShow("all");
+    setPlan("all");
+    setQuery("");
   };
+
+  const change = (update: (previous: ServiceCart) => ServiceCart) => {
+    setPicks(update);
+    setConfirming(false);
+  };
+
+  // The row's checkbox: every sub-service the client doesn't have yet, or none.
+  const toggleService = ({ service, included }: Row) => {
+    const rest = service.subServices.filter((item) => !included.includes(item._id)).map((item) => item._id);
+    change((previous) => {
+      const next = { ...previous };
+      if (next[service._id]?.length === rest.length) delete next[service._id];
+      else next[service._id] = rest;
+      return next;
+    });
+    setOpenId(service._id);
+  };
+
+  const toggleItem = (serviceId: string, id: string) =>
+    change((previous) => {
+      const current = previous[serviceId] ?? [];
+      const items = current.includes(id) ? current.filter((entry) => entry !== id) : [...current, id];
+      const next = { ...previous };
+      if (items.length) next[serviceId] = items;
+      else delete next[serviceId];
+      return next;
+    });
 
   return (
-    <div className="rounded-[10px] border border-[#dbe3de] bg-white p-5">
-      <div className="flex items-start justify-between gap-3.5">
-        <div className="flex min-w-0 flex-1 cursor-pointer gap-3.5" onClick={() => setOpen((value) => !value)}>
-          <div
-            className="flex h-10.5 w-10.5 shrink-0 items-center justify-center rounded-[10px] text-[17px] text-white"
-            style={{ background: category.color }}
-          >
-            <Icon size={19} strokeWidth={2} />
-          </div>
-          <div>
-            <div className="flex flex-wrap items-center gap-2.5">
-              <span className="text-[15px] font-bold text-[#0d1e2c]">{category.title}</span>
-              <span className="rounded bg-[#f1f5f3] px-2.25 py-0.75 text-[10px] font-bold tracking-[0.4px] text-[#556977]">
-                {category.plan}
-              </span>
-              <span className="ml-0.5 inline-flex text-[10px] text-[#9aacb8]">
-                {open ? <ChevronDown size={14} strokeWidth={2.5} /> : <ChevronRight size={14} strokeWidth={2.5} />}
-              </span>
-            </div>
-            <div className="mt-1.5 text-[12.5px] leading-normal text-[#556977]">{category.description}</div>
-          </div>
-        </div>
-        <div className="flex shrink-0 flex-col items-end gap-2">
-          <div className="shrink-0 text-[19px] font-bold whitespace-nowrap text-[#0d1e2c]">
-            ${formatMoney(total)}
-            <span className="ml-0.5 text-[11px] font-semibold text-[#8496a3]">/mo</span>
-          </div>
+    <div className={`${poppins.className} flex flex-col gap-4.5`}>
+      <div>
+        <div className="text-[28px] leading-tight font-bold text-[#0b0c24]">Services</div>
+        <div className="mt-1 text-[12.5px] text-[#4b5563]">
+          The services you take from BayShore Communication, what you pay each month, and everything else we offer.
         </div>
       </div>
 
-      {open ? (
-        <div className="mt-1">
-          <div className="mt-3.5 flex flex-col gap-2">
-            {category.items.map((entry) => {
-              const id = `${category.key}:${entry.name}`;
-              const checked = selectedIds.has(id);
-              const locked = isPurchased(id);
+      {mine ? (
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+          <SummaryTile icon={Layers} label="My Services" sub="Active on your account" value={String(myCount)} color="#2f5fd8" background="#d9e0ef" />
+          <SummaryTile icon={CircleDollarSign} label="Monthly Payment" sub="For everything included" value={dollars(monthlyTotal)} color="#16a34a" background="#d2e7d8" />
+          <SummaryTile icon={ListChecks} label="Sub-services" sub="Included across your services" value={String(includedCount)} color="#d97706" background="#f8e4c6" />
+          <SummaryTile
+            icon={Sparkles}
+            label="Available to Add"
+            sub="Services you don't take yet"
+            value={catalog ? String(availableCount) : "—"}
+            color="#7c3aed"
+            background="#ece4fb"
+          />
+        </div>
+      ) : (
+        <div role="alert" className={errorBannerClass}>
+          {mineError ?? "Could not load your services."} Please refresh the page to try again.
+        </div>
+      )}
 
-              return (
-                <label
-                  className="flex cursor-pointer items-center gap-2.5 border-b border-[#f4f7f5] px-1 py-2.5 text-[12.5px] last:border-b-0"
-                  key={id}
-                >
-                  <input
-                    type="checkbox"
-                    className="h-4 w-4 shrink-0 cursor-pointer accent-[#2563eb]"
-                    checked={checked}
-                    disabled={locked}
-                    onChange={(event) =>
-                      onToggle(
-                        { id, category: category.key, name: entry.name, price: entry.price },
-                        event.target.checked
-                      )
-                    }
-                  />
-                  <span className={`flex-1 ${checked ? "font-semibold text-[#2563eb]" : "font-medium text-[#384955]"}`}>
-                    {entry.name}
-                  </span>
-                  <span className={`text-[11.5px] font-bold whitespace-nowrap ${checked ? "text-[#17242f]" : "text-[#8496a3]"}`}>
-                    ${entry.price}/mo
-                  </span>
-                </label>
-              );
-            })}
-
-            {customItems.map((item) => (
-              <label
-                className="flex animate-[sc-fade-in_0.4s_ease] cursor-pointer items-center gap-2.5 border-b border-[#f4f7f5] px-1 py-2.5 text-[12.5px] last:border-b-0"
-                key={item.id}
-              >
-                <input
-                  type="checkbox"
-                  className="h-4 w-4 shrink-0 cursor-pointer accent-[#2563eb]"
-                  checked
-                  disabled={isPurchased(item.id)}
-                  onChange={() => onRemoveCustom(item.id)}
-                />
-                <span className="flex-1 font-semibold text-[#2563eb]">
-                  {item.name}
-                  {item.description ? <span className="text-[11px] font-normal text-[#9aacb8]"> — {item.description}</span> : null}
-                  {item.timeline ? <span className="text-[11px] font-normal text-[#9aacb8]"> · Needed: {item.timeline}</span> : null}
-                </span>
-                <span className="text-[11.5px] font-bold whitespace-nowrap text-[#17242f]">+${item.price}/mo</span>
-              </label>
-            ))}
-          </div>
-
-          <button
-            className="mt-3.5 flex w-full cursor-pointer items-center justify-center gap-1.5 rounded-md border border-dashed border-[#93c5fd] bg-white px-3 py-2.5 text-[11px] font-bold whitespace-nowrap text-[#2563eb] hover:bg-[#eff6ff]"
-            onClick={() => setFormOpen((value) => !value)}
-          >
-            <Plus size={13} strokeWidth={2.5} /> Request New Service
-          </button>
-
-          {formOpen ? (
-            <div className="mt-3.5 rounded-lg border border-[#eef3ef] bg-[#f7f9f8] p-3.5">
-              <input
-                type="text"
-                className={`${inputClass} ${nameMissing ? "border-[#dc2626]" : ""}`}
-                placeholder={category.customPlaceholder}
-                value={name}
-                onChange={(event) => {
-                  setName(event.target.value);
-                  setNameMissing(false);
-                }}
-              />
-              <textarea
-                className="mt-2 h-14 w-full resize-none rounded-md border border-[#cbd6d0] bg-[#fafcfb] px-3 py-2.25 font-[inherit] text-xs text-[#1a252c]"
-                placeholder="Short description of what this includes..."
-                value={description}
-                onChange={(event) => setDescription(event.target.value)}
-              />
-              <div className="mt-2">
-                <label className="mb-1.25 block text-[11px] font-semibold text-[#7a8e9b]">Timeline</label>
-                <select className={inputClass} value={timeline} onChange={(event) => setTimeline(event.target.value)}>
-                  {TIMELINES.map((option) => (
-                    <option key={option}>{option}</option>
-                  ))}
-                </select>
-              </div>
-              <div className="mt-2.5 flex justify-end gap-2">
-                <button
-                  className="cursor-pointer rounded-md border border-[#cfdcd6] bg-white px-4.5 py-2.25 text-[13px] font-semibold text-[#273847]"
-                  onClick={resetForm}
-                >
-                  Cancel
-                </button>
-                <button
-                  className="inline-flex cursor-pointer items-center gap-1.5 rounded-md border-none bg-[#2563eb] px-4.5 py-2.5 text-[12.5px] font-bold text-white"
-                  onClick={submitCustom}
-                >
-                  Request Service · +${CUSTOM_REQUEST_PRICE}/mo
-                </button>
-              </div>
-            </div>
-          ) : null}
-
-          {total > 0 ? (
-            <div className="mt-3.5 border-t border-[#eef3ef] pt-3 text-[11.5px] text-[#7a8e9b]">
-              Your specialist: <b className="text-[#17242f]">{category.specialist}</b>
-            </div>
-          ) : null}
+      {mine && !catalog ? (
+        <div role="alert" className={errorBannerClass}>
+          {catalogError ?? "Could not load the other services on offer."} Your own services are shown below; refresh the page to see the rest.
         </div>
       ) : null}
-    </div>
-  );
-};
 
-const Services = () => {
-  const { pending, purchased, addPending, removePending } = useServices();
-  const listRef = useRef<HTMLDivElement>(null);
-  const [highlight, setHighlight] = useState(false);
-
-  const active = [...purchased, ...pending];
-  const activeTotal = active.reduce((sum, item) => sum + item.price, 0);
-  const pendingTotal = pending.reduce((sum, item) => sum + item.price, 0);
-  const purchasedIds = new Set(purchased.map((item) => item.id));
-
-  const scrollToMyServices = () => {
-    listRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
-    setHighlight(true);
-    window.setTimeout(() => setHighlight(false), 1200);
-  };
-
-  const countLabel =
-    active.length === 0 ? "No services yet" : `${active.length} service${active.length === 1 ? "" : "s"} selected`;
-
-  return (
-    <>
-      <div className="flex items-center justify-between">
-        <div className="text-[13px] text-[#6a7b8a]">
-          <b className="text-[#18232c]">Services</b>
-        </div>
-      </div>
-
-      <div>
-        <div className="font-serif text-[26px] font-bold text-[#0b1a26]">Your Services</div>
-        <div className="mt-1 text-[13px] text-[#657787]">
-          Click a category to see what&apos;s included, then check off exactly what you need — your price updates as you go.
-        </div>
-      </div>
-
-      <div className="grid grid-cols-4 gap-4">
-        <div className="cursor-pointer rounded-[10px] border border-[#dbe3de] bg-white px-5 py-4.5" onClick={scrollToMyServices}>
-          <div className="mb-2 text-[10.5px] font-bold tracking-[0.6px] text-[#8496a3]">MY SERVICES</div>
-          <div className="mb-2 text-[30px] font-bold text-[#0d1e2c]">{active.length}</div>
-          <div className="text-[11px] text-[#7a8e9b]">{countLabel}</div>
-        </div>
-        <div className="rounded-[10px] border border-[#dbe3de] bg-white px-5 py-4.5">
-          <div className="mb-2 text-[10.5px] font-bold tracking-[0.6px] text-[#8496a3]">MONTHLY INVESTMENT</div>
-          <div className="mb-2 text-[30px] font-bold text-[#0d1e2c]">${formatMoney(activeTotal)}</div>
-          <div className="text-[11px] text-[#7a8e9b]">
-            {purchased.length === 0 ? "Nothing billed yet" : `$${formatMoney(activeTotal - pendingTotal)} billed monthly`}
-          </div>
-        </div>
-        <div className="rounded-[10px] border border-[#dbe3de] bg-white px-5 py-4.5">
-          <div className="mb-2 text-[10.5px] font-bold tracking-[0.6px] text-[#8496a3]">CLIENT SINCE</div>
-          <div className="mb-2 text-xl font-bold text-[#0d1e2c]">Jan 2025</div>
-          <div className="text-[11px] text-[#7a8e9b]">Plan renews annually</div>
-        </div>
-        <div className="rounded-[10px] border border-[#dbe3de] bg-white px-5 py-4.5">
-          <div className="mb-2 text-[10.5px] font-bold tracking-[0.6px] text-[#8496a3]">NEXT RENEWAL</div>
-          <div className="mb-2 text-xl font-bold text-[#0d1e2c]">{active.length === 0 ? "—" : "Jan 2027"}</div>
-          <div className="text-[11px] text-[#7a8e9b]">
-            {active.length === 0 ? "Starts once a service is added" : "Renews on Jan 15"}
-          </div>
-        </div>
-      </div>
-
-      <div className="grid grid-cols-[2.2fr_1fr] items-start gap-5">
-        <div className={`flex flex-col gap-4 ${highlight ? "animate-[services-pulse_1.2s_ease]" : ""}`} ref={listRef}>
-          {serviceCategories.map((category) => (
-            <CategoryCard
-              key={category.key}
-              category={category}
-              items={active.filter((item) => item.category === category.key)}
-              isPurchased={(id) => purchasedIds.has(id)}
-              onToggle={(item, checked) => (checked ? addPending(item) : removePending(item.id))}
-              onRemoveCustom={removePending}
-              onRequestCustom={addPending}
-            />
-          ))}
-
-          {pending.length > 0 ? (
-            <div className="sticky bottom-3 mt-1 flex items-center justify-between rounded-[10px] bg-[#0d1e2e] px-5 py-3.5 shadow-[0_8px_24px_rgba(0,0,0,0.18)]">
-              <div>
-                <div className="text-[13px] font-bold text-white">
-                  {pending.length} service{pending.length === 1 ? "" : "s"} selected
-                </div>
-                <div className="mt-0.5 text-[11.5px] text-[#9cb0c3]">Total: ${formatMoney(pendingTotal)}/mo</div>
-              </div>
-              <Link
-                href="/payments"
-                className="inline-flex cursor-pointer items-center gap-1.5 rounded-md border-none bg-[#2563eb] px-4.5 py-2.5 text-[12.5px] font-bold whitespace-nowrap text-white no-underline"
+      {mine ? (
+        <>
+          <div className={`${cardClass} flex flex-wrap items-center gap-3 p-3.5`}>
+            <SelectBox label="Show" value={show} onChange={(value) => setShow(value as Show)}>
+              <option value="all">All Services</option>
+              <option value="mine">My Services</option>
+              <option value="available">Available to Add</option>
+            </SelectBox>
+            <SelectBox label="Plan" value={plan} onChange={(value) => setPlan(value as ServicePlan | "all")}>
+              <option value="all">All Plans</option>
+              {SERVICE_PLAN_KEYS.map((key) => (
+                <option key={key} value={key}>
+                  {SERVICE_PLANS[key]}
+                </option>
+              ))}
+            </SelectBox>
+            {hasFilters ? (
+              <button
+                type="button"
+                className="flex h-9.5 cursor-pointer items-center gap-1.5 rounded-lg px-2.5 text-[12px] font-medium text-[#4b5260] hover:bg-[#f3f4f6] hover:text-[#0b0c24]"
+                onClick={clearFilters}
               >
-                Proceed to Payment <ArrowRight size={14} strokeWidth={2.5} />
-              </Link>
-            </div>
-          ) : null}
-        </div>
-
-        <div className="flex flex-col gap-4">
-          <div className="rounded-lg border border-[#dbe3de] bg-white px-5 py-4.5">
-            <div className="mb-3.5">
-              <div className="text-sm font-bold text-[#0d1e2c]">Contract Overview</div>
-              <div className="mt-0.5 text-[11px] text-[#728492]">Your agreement with BayShore</div>
-            </div>
-            <div className="flex justify-between border-b border-[#eef3ef] py-2.25 text-[12.5px] last:border-b-0">
-              <span className="text-[#7a8e9b]">Client since</span>
-              <b className="text-[#17242f]">Jan 15, 2025</b>
-            </div>
-            <div className="flex justify-between border-b border-[#eef3ef] py-2.25 text-[12.5px] last:border-b-0">
-              <span className="text-[#7a8e9b]">Current term</span>
-              <b className="text-[#17242f]">12 months</b>
-            </div>
-            <div className="flex justify-between border-b border-[#eef3ef] py-2.25 text-[12.5px] last:border-b-0">
-              <span className="text-[#7a8e9b]">Next renewal</span>
-              <b className="text-[#17242f]">Jan 15, 2027</b>
-            </div>
-            <div className="flex justify-between border-b border-[#eef3ef] py-2.25 text-[12.5px] last:border-b-0">
-              <span className="text-[#7a8e9b]">Billing cycle</span>
-              <b className="text-[#17242f]">Monthly, on the 1st</b>
+                <RotateCcw size={13} strokeWidth={2} /> Clear
+              </button>
+            ) : null}
+            <div
+              className="flex h-9.5 w-full items-center gap-2.5 rounded-lg border border-[#e2e5e9] bg-white px-3 focus-within:border-[#9aa3af] xl:ml-auto xl:max-w-80"
+              role="search"
+            >
+              <Search size={15} strokeWidth={2} className="shrink-0 text-[#1f2530]" />
+              <input
+                type="search"
+                placeholder="Search services or what's included..."
+                aria-label="Search services"
+                autoComplete="off"
+                className="w-full border-none bg-transparent text-[12px] text-[#1f2530] outline-none placeholder:text-[#6b7280] [&::-webkit-search-cancel-button]:hidden"
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+              />
+              {query ? (
+                <button type="button" className="inline-flex cursor-pointer text-[#6b7280] hover:text-[#0b0c24]" aria-label="Clear search" onClick={() => setQuery("")}>
+                  <X size={14} strokeWidth={2.5} />
+                </button>
+              ) : null}
             </div>
           </div>
 
-          <div className="rounded-lg border border-[#dbe3de] bg-white px-5 py-4.5">
-            <div className="mb-2 text-sm font-bold text-[#0d1e2c]">How This Works</div>
-            <div className="text-[11px] text-[#7a8e9b]">
-              Click any category to see what&apos;s included. Check the specific services you want — your monthly price
-              updates instantly. Don&apos;t see what you need? Use{" "}
-              <b className="text-[#17242f]">+ Request New Service</b> under any category.
+          <div className="grid grid-cols-1 items-start gap-4.5 lg:grid-cols-[minmax(0,1fr)_300px]">
+            <div className="flex min-w-0 flex-col gap-3">
+              <div className={`${cardClass} p-3.5`}>
+                {filtered.length === 0 ? (
+                  <div className="flex flex-col items-center px-5 py-11 text-center">
+                    <div className="mb-3.5 flex h-14 w-14 items-center justify-center rounded-2xl bg-[#d9e0ef] text-[#2f5fd8]">
+                      {hasFilters ? <SearchX size={24} strokeWidth={1.8} /> : <Layers size={24} strokeWidth={1.8} />}
+                    </div>
+                    <div className="text-lg font-semibold text-[#0b0c24]">{hasFilters ? "No services match these filters" : "No services yet"}</div>
+                    <div className="mt-2 mb-4.5 max-w-90 text-[12.5px] leading-normal text-[#4b5563]">
+                      {hasFilters
+                        ? "Try a different view, plan or search."
+                        : "The services BayShore Communication offers will appear here. Message your account manager to get started."}
+                    </div>
+                    {hasFilters ? (
+                      <button type="button" className={`${darkButtonClass} px-4.5 py-2.25`} onClick={clearFilters}>
+                        <RotateCcw size={13} strokeWidth={2} /> Clear filters
+                      </button>
+                    ) : null}
+                  </div>
+                ) : (
+                  <>
+                    <div className="overflow-x-auto">
+                      <table className="w-full border-separate border-spacing-0">
+                        <thead>
+                          <tr>
+                            <th className={`${thClass} w-10 rounded-l-lg`}>
+                              <span className="sr-only">Add</span>
+                            </th>
+                            <th className={thClass}>Service</th>
+                            <th className={thClass}>Plan</th>
+                            <th className={thClass}>Status</th>
+                            <th className={`${thClass} text-right`}>Monthly</th>
+                            <th className={`${thClass} w-12 rounded-r-lg`}>
+                              <span className="sr-only">Details</span>
+                            </th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {filtered.map((row) => {
+                            const { service, included } = row;
+                            const Icon = serviceIconOf(service);
+                            const open = openId === service._id;
+                            const toggle = () => setOpenId(open ? null : service._id);
+                            const ticked = tickedOf(row);
+                            const remaining = service.subServices.length - included.length;
+                            const active = included.length > 0;
+
+                            return (
+                              <Fragment key={service._id}>
+                                {/* The whole row opens the service; the chevron is the keyboard way in. */}
+                                <tr className={`cursor-pointer ${open || ticked.length ? "bg-[#f9fafb]" : "hover:bg-[#f9fafb]"}`} onClick={toggle}>
+                                  {/* Clicks on the checkbox tick it; they don't open the row. */}
+                                  <td className={tdClass} onClick={(event) => event.stopPropagation()}>
+                                    {remaining > 0 ? (
+                                      <TriCheckbox
+                                        className="block"
+                                        label={active ? `Add the rest of ${service.title}` : `Add ${service.title} with all its sub-services`}
+                                        checked={ticked.length === remaining}
+                                        partial={ticked.length > 0}
+                                        onChange={() => toggleService(row)}
+                                      />
+                                    ) : (
+                                      <span className="flex h-4 w-4 items-center justify-center rounded-full bg-[#d6eadb] text-[#15803d]" title="You have all of this service">
+                                        <Check size={11} strokeWidth={3} />
+                                      </span>
+                                    )}
+                                  </td>
+                                  <td className={tdClass}>
+                                    <div className="flex items-center gap-3">
+                                      <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-white" style={{ background: serviceColorOf(service) }}>
+                                        <Icon size={16} strokeWidth={2} />
+                                      </span>
+                                      <span className="min-w-0">
+                                        <span className="block max-w-72 truncate font-medium text-[#1f2530]" title={service.title}>
+                                          {service.title}
+                                        </span>
+                                        {service.description ? (
+                                          <span className="mt-0.5 block max-w-72 truncate text-[11px] text-[#6b7280]" title={service.description}>
+                                            {service.description}
+                                          </span>
+                                        ) : null}
+                                      </span>
+                                    </div>
+                                  </td>
+                                  <td className={tdClass}>
+                                    <span className="inline-block rounded-md bg-[#f3f4f6] px-2.5 py-1 text-[11px] font-medium text-[#4b5260]">
+                                      {SERVICE_PLANS[service.plan] ?? service.plan}
+                                    </span>
+                                  </td>
+                                  <td className={tdClass}>
+                                    {active ? (
+                                      <span className="inline-flex items-center gap-1.5 rounded-md bg-[#d6eadb] px-2.5 py-1 text-[11px] font-medium text-[#15803d]">
+                                        <span className="h-1.5 w-1.5 rounded-full bg-[#16a34a]" />
+                                        Active · {included.length} of {service.subServices.length}
+                                      </span>
+                                    ) : (
+                                      <span className="inline-flex items-center gap-1.5 rounded-md bg-[#e8ecf1] px-2.5 py-1 text-[11px] font-medium text-[#475569]">
+                                        <span className="h-1.5 w-1.5 rounded-full bg-[#64748b]" />
+                                        Not added
+                                      </span>
+                                    )}
+                                    {ticked.length ? <span className="ml-2 text-[11px] font-medium text-[#2f5fd8]">+{ticked.length} to add</span> : null}
+                                  </td>
+                                  <td className={`${tdClass} text-right`}>
+                                    <span className={`text-[13.5px] font-semibold ${active ? "text-[#0b0c24]" : "text-[#6b7280]"}`}>
+                                      {dollars(active ? priceOf(service, included) : service.monthlyPrice)}
+                                    </span>
+                                    <span className="text-[11px] text-[#6b7280]">/mo</span>
+                                  </td>
+                                  <td className={`${tdClass} text-right`}>
+                                    <button
+                                      type="button"
+                                      className="inline-flex h-7.5 w-7.5 cursor-pointer items-center justify-center rounded-md text-[#4b5260] hover:bg-[#eef0f2] hover:text-[#0b0c24]"
+                                      aria-expanded={open}
+                                      aria-label={`${open ? "Hide" : "Show"} what's in ${service.title}`}
+                                      onClick={(event) => {
+                                        event.stopPropagation();
+                                        toggle();
+                                      }}
+                                    >
+                                      <ChevronDown size={16} strokeWidth={2} className={`transition-transform ${open ? "rotate-180" : ""}`} />
+                                    </button>
+                                  </td>
+                                </tr>
+                                {open ? (
+                                  <tr>
+                                    <td colSpan={6} className="border-b border-[#eef0f2] bg-[#f9fafb] px-3 pt-1 pb-3.5">
+                                      <div className="rounded-xl bg-[#f6f7f9] p-4 whitespace-normal">
+                                        <div className="mb-2.5 flex flex-wrap items-baseline justify-between gap-2">
+                                          <div className="text-[11px] text-[#6b7280]">What&apos;s in this service</div>
+                                          <div className="text-[11px] text-[#6b7280]">
+                                            {active ? `You have ${included.length} of ${service.subServices.length}` : plural(service.subServices.length, "sub-service")}
+                                            {remaining > 0 && catalog ? " · tick one to add it" : ""}
+                                          </div>
+                                        </div>
+                                        <ul className="grid list-none grid-cols-1 gap-2 md:grid-cols-2">
+                                          {service.subServices.map((item) => {
+                                            const have = included.includes(item._id);
+                                            const on = ticked.includes(item._id);
+
+                                            return have ? (
+                                              <li key={item._id} className="flex items-center gap-2.5 rounded-lg border border-[#e6e8eb] bg-white px-3 py-2 text-[12px]">
+                                                <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-[#d6eadb] text-[#15803d]">
+                                                  <Check size={12} strokeWidth={2.75} />
+                                                </span>
+                                                <span className="min-w-0 flex-1 text-[#1f2530]">{item.name}</span>
+                                                <span className="shrink-0 font-medium text-[#4b5260]">{dollars(item.price)}/mo</span>
+                                              </li>
+                                            ) : (
+                                              <li key={item._id}>
+                                                <label
+                                                  className={`flex cursor-pointer items-center gap-2.5 rounded-lg border px-3 py-2 text-[12px] ${
+                                                    on ? "border-[#0b0c24] bg-white" : "border-dashed border-[#d5d9df] bg-transparent hover:bg-white"
+                                                  }`}
+                                                >
+                                                  <TriCheckbox className="mx-0.5" label={`Add ${item.name}`} checked={on} onChange={() => toggleItem(service._id, item._id)} />
+                                                  <span className={`min-w-0 flex-1 ${on ? "text-[#1f2530]" : "text-[#4b5260]"}`}>{item.name}</span>
+                                                  <span className={`shrink-0 font-medium ${on ? "text-[#1f2530]" : "text-[#6b7280]"}`}>+{dollars(item.price)}/mo</span>
+                                                </label>
+                                              </li>
+                                            );
+                                          })}
+                                        </ul>
+                                      </div>
+                                    </td>
+                                  </tr>
+                                ) : null}
+                              </Fragment>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                    <div className="mt-4 flex flex-wrap items-center justify-between gap-3 px-1 text-[12px] text-[#1f2530]">
+                      <span>
+                        Showing {filtered.length} of {plural(rows.length, "service")}
+                      </span>
+                      <span>
+                        Your monthly payment <span className="font-semibold text-[#0b0c24]">{dollars(monthlyTotal)}</span>
+                      </span>
+                    </div>
+                  </>
+                )}
+              </div>
+
+              {/* Stays in view while there is something ticked, so the total and the button are never off screen. */}
+              {pickedCount > 0 ? (
+                <div className="sticky bottom-3 z-10 flex flex-wrap items-center justify-between gap-3 rounded-2xl bg-[#0b0c24] px-5 py-3.5 shadow-[0_10px_28px_rgba(11,12,36,0.28)]">
+                  {confirming ? (
+                    <>
+                      <div className="text-white">
+                        <div className="text-[13px] font-semibold">
+                          Your monthly payment will go from {dollars(monthlyTotal)} to {dollars(monthlyTotal + pickedTotal)}.
+                        </div>
+                        <div className="mt-0.5 text-[11.5px] text-[#b4bacb]">
+                          {plural(pickedCount, "sub-service")} · +{dollars(pickedTotal)}/mo. They&apos;re added once the payment is confirmed.
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2.5">
+                        <button
+                          type="button"
+                          className="flex h-9.5 cursor-pointer items-center rounded-lg border border-[#3a3d5c] px-4 text-[12.5px] font-medium text-white hover:bg-[#1e2140]"
+                          onClick={() => setConfirming(false)}
+                        >
+                          Back
+                        </button>
+                        <button
+                          type="button"
+                          className="flex h-9.5 cursor-pointer items-center gap-1.5 rounded-lg bg-white px-4.5 text-[12.5px] font-semibold text-[#0b0c24] hover:bg-[#eef0f2]"
+                          onClick={() => router.push("/payments")}
+                        >
+                          Continue to Payment <ArrowRight size={14} strokeWidth={2.5} />
+                        </button>
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <div className="text-white">
+                        <div className="text-[13px] font-semibold">
+                          {plural(pickedCount, "sub-service")} selected{picked.length > 1 ? ` across ${picked.length} services` : ""}
+                        </div>
+                        <div className="mt-0.5 text-[11.5px] text-[#b4bacb]">+{dollars(pickedTotal)}/mo on top of what you pay now</div>
+                      </div>
+                      <div className="flex items-center gap-2.5">
+                        <button
+                          type="button"
+                          className="flex h-9.5 cursor-pointer items-center rounded-lg px-3 text-[12.5px] font-medium text-[#b4bacb] hover:text-white"
+                          onClick={() => change(() => ({}))}
+                        >
+                          Clear
+                        </button>
+                        <button
+                          type="button"
+                          className="flex h-9.5 cursor-pointer items-center gap-1.5 rounded-lg bg-white px-4.5 text-[12.5px] font-semibold text-[#0b0c24] hover:bg-[#eef0f2]"
+                          onClick={() => setConfirming(true)}
+                        >
+                          <Plus size={14} strokeWidth={2.5} /> Add to My Services
+                        </button>
+                      </div>
+                    </>
+                  )}
+                </div>
+              ) : null}
+            </div>
+
+            <div className="flex flex-col gap-4.5">
+              <div className={`${cardClass} p-4.5`}>
+                <div className="mb-3.5 flex items-center gap-3">
+                  <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-[#d9e0ef] text-[#2f5fd8]">
+                    <PieChart size={17} strokeWidth={2} />
+                  </span>
+                  <div>
+                    <div className="text-[13px] font-semibold text-[#0b0c24]">Where Your Payment Goes</div>
+                    <div className="mt-0.5 text-[11px] text-[#6b7280]">{dollars(monthlyTotal)} a month</div>
+                  </div>
+                </div>
+                {mine.services.length === 0 ? (
+                  <div className="py-1 text-[12px] leading-normal text-[#6b7280]">Nothing yet — tick a service in the list to add it.</div>
+                ) : (
+                  <div className="flex flex-col gap-3.5">
+                    {mine.services.map((entry) => (
+                      <div key={entry._id}>
+                        <div className="mb-1.5 flex items-center justify-between gap-2 text-[12px]">
+                          <span className="flex min-w-0 items-center gap-2 font-medium text-[#1f2530]">
+                            <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: serviceColorOf(entry.service) }} />
+                            <span className="truncate" title={entry.service.title}>
+                              {entry.service.title}
+                            </span>
+                          </span>
+                          <span className="shrink-0 text-[#4b5260]">
+                            <span className="font-semibold text-[#0b0c24]">{dollars(entry.monthlyPrice)}</span> ·{" "}
+                            {monthlyTotal ? Math.round((entry.monthlyPrice / monthlyTotal) * 100) : 0}%
+                          </span>
+                        </div>
+                        <div className="h-2 overflow-hidden rounded-full bg-[#f3f4f6]">
+                          <div
+                            className="h-full rounded-full"
+                            style={{ width: `${monthlyTotal ? (entry.monthlyPrice / monthlyTotal) * 100 : 0}%`, background: serviceColorOf(entry.service) }}
+                          />
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              <div className={`${cardClass} p-4.5`}>
+                <div className="mb-2 flex items-center gap-3">
+                  <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-[#f3f4f6] text-[#0b0c24]">
+                    <MessageCircle size={17} strokeWidth={2} />
+                  </span>
+                  <div className="text-[13px] font-semibold text-[#0b0c24]">Need to change something?</div>
+                </div>
+                <div className="text-[12px] leading-normal text-[#4b5563]">
+                  You can add services here any time — they start once the payment is confirmed. To remove one, or if you need something that isn&apos;t listed, message your account manager.
+                </div>
+                <Link href="/messages" className={`${darkButtonClass} mt-3.5 justify-center px-4 py-2.25`}>
+                  <MessageCircle size={14} strokeWidth={2} /> Send a Message
+                </Link>
+              </div>
             </div>
           </div>
-        </div>
-      </div>
-    </>
+        </>
+      ) : null}
+    </div>
   );
 };
 

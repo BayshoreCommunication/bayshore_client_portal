@@ -1,4 +1,7 @@
-import { Bell, CalendarDays, ChevronDown, Search } from "lucide-react";
+import { Suspense } from "react";
+import { CalendarDays, ChevronDown, Search } from "lucide-react";
+import { listNotificationsAction } from "@/app/actions/notifications";
+import NotificationBell, { BellPlaceholder } from "./NotificationBell";
 import TopbarUserMenu from "./TopbarUserMenu";
 
 // White, lightly-bordered pill shared by every topbar control.
@@ -10,6 +13,16 @@ const currentMonthLabel = () =>
     year: "numeric",
     timeZone: "UTC",
   });
+
+// How many notifications the bell's panel lists; the Notifications page has the rest.
+const BELL_LIMIT = 8;
+
+// The bell with its first load done on the server, so the unread badge is right from the
+// first paint. It is streamed in behind a placeholder, so it never holds the page up.
+const LoadedBell = async () => {
+  const result = await listNotificationsAction({ limit: BELL_LIMIT });
+  return <NotificationBell limit={BELL_LIMIT} initial={result.ok ? result.data : undefined} />;
+};
 
 const Topbar = () => {
   return (
@@ -28,15 +41,9 @@ const Topbar = () => {
           <CalendarDays size={14} strokeWidth={2} /> {currentMonthLabel()}
           <ChevronDown size={14} strokeWidth={2} />
         </div>
-        <button
-          className={`${boxClass} relative flex w-10 shrink-0 cursor-pointer items-center justify-center text-[15px] text-[#17242f] hover:bg-[#f9fafb]`}
-          aria-label="Notifications"
-        >
-          <Bell size={16} strokeWidth={2} />
-          <span className="absolute -right-0.75 -top-0.75 flex h-4.25 w-4.25 items-center justify-center rounded-full bg-[#dc2626] text-[10px] font-bold text-white">
-            4
-          </span>
-        </button>
+        <Suspense fallback={<BellPlaceholder />}>
+          <LoadedBell />
+        </Suspense>
         <TopbarUserMenu />
       </div>
     </div>

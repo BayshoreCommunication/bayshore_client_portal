@@ -10,7 +10,7 @@ import {
   Smartphone,
   type LucideIcon,
 } from "lucide-react";
-import type { ContentFile, ContentItem, ContentMedia, ContentStatus, ContentType } from "@/app/actions/content";
+import type { ContentFile, ContentItem, ContentMedia, ContentPiece, ContentStatus, ContentType } from "@/app/actions/content";
 
 // Badge and pill colors for each kind of content — the same kinds the team can prepare.
 export const CONTENT_TYPES: Record<ContentType, { label: string; icon: LucideIcon; color: string; background: string }> = {
@@ -96,6 +96,16 @@ export const CONTENT_STATUSES: Record<ContentStatus, { label: string; color: str
   revision_requested: { label: "In Revision", color: "#b91c1c", background: "#f8dcdc", dot: "#dc2626" },
   approved: { label: "Approved", color: "#15803d", background: "#d6eadb", dot: "#16a34a" },
 };
+
+// The pieces sent together with this one (itself included). A piece sent alone is a group of one.
+export const piecesOf = (item: ContentItem): ContentPiece[] =>
+  item.pieces?.length ? item.pieces : [{ _id: item._id, type: item.type, title: item.title, status: item.status }];
+
+// Where a group stands as a whole: whatever most needs attention among its pieces —
+// a revision under way first, then anything still waiting for approval.
+const GROUP_STATUS_ORDER: ContentStatus[] = ["revision_requested", "pending_approval", "approved"];
+export const groupStatusOf = (pieces: ContentPiece[]): ContentStatus =>
+  GROUP_STATUS_ORDER.find((status) => pieces.some((piece) => piece.status === status)) ?? "pending_approval";
 
 export const formatDate = (iso?: string) =>
   iso ? new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "—";

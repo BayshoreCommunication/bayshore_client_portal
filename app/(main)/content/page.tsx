@@ -6,7 +6,8 @@ import { poppins } from "@/component/shared/fonts";
 const CONTENT_LIMIT = 100;
 
 const ContentPage = async () => {
-  const result = await listMyContentAction({ limit: CONTENT_LIMIT });
+  // Pieces sent together are one row.
+  const result = await listMyContentAction({ limit: CONTENT_LIMIT, grouped: true });
 
   if (!result.ok || !result.data) {
     return (

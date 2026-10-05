@@ -61,12 +61,6 @@ const Reports = ({ reports }: { reports: MyReportListItem[] }) => {
   return (
     <div className={`${poppins.className} flex flex-col gap-4.5`}>
       <div>
-        <div className="mb-1 text-[12px] text-[#4b5260]">
-          <Link href="/dashboard" className="cursor-pointer hover:underline">
-            Reports
-          </Link>{" "}
-          / <span className="font-semibold text-[#0b0c24]">My Reports</span>
-        </div>
         <div className="text-[28px] leading-tight font-bold text-[#0b0c24]">My Reports</div>
         <div className="mt-1 text-[12.5px] text-[#4b5563]">
           {reports.length > 0

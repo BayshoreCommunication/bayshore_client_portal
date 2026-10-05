@@ -1,12 +1,12 @@
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { getMyProjectAction } from "@/app/actions/project";
-import ProjectDetails from "@/component/projects/ProjectDetails";
+import ProjectForm from "@/component/projects/ProjectForm";
+import { canEditProject } from "@/component/projects/projectUi";
 
-const ProjectDetailsPage = async ({ params }: { params: Promise<{ slug: string }> }) => {
+const EditProjectPage = async ({ params }: { params: Promise<{ slug: string }> }) => {
   const { slug } = await params;
   const result = await getMyProjectAction(slug);
 
-  // 422 is an id that isn't one at all (an old bookmark from before projects were saved online).
   if (result.status === 404 || result.status === 422) notFound();
 
   if (!result.ok || !result.data) {
@@ -17,7 +17,10 @@ const ProjectDetailsPage = async ({ params }: { params: Promise<{ slug: string }
     );
   }
 
-  return <ProjectDetails project={result.data} />;
+  // A completed project can't be changed; its page says where it stands.
+  if (!canEditProject(result.data)) redirect(`/projects/${slug}`);
+
+  return <ProjectForm project={result.data} />;
 };
 
-export default ProjectDetailsPage;
+export default EditProjectPage;

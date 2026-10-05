@@ -19,7 +19,17 @@ import {
 } from "lucide-react";
 import type { ContentItem, ContentStatus, ContentType } from "@/app/actions/content";
 import { poppins } from "@/component/shared/fonts";
-import { CONTENT_STATUSES as STATUSES, CONTENT_TYPES as TYPES, CONTENT_TYPE_KEYS, batchLabelOf, formatDate, personNameOf, typeOf } from "./contentUi";
+import {
+  CONTENT_STATUSES as STATUSES,
+  CONTENT_TYPES as TYPES,
+  CONTENT_TYPE_KEYS,
+  batchLabelOf,
+  formatDate,
+  groupStatusOf,
+  personNameOf,
+  piecesOf,
+  typeOf,
+} from "./contentUi";
 
 const PAGE_SIZE = 10;
 
@@ -91,8 +101,9 @@ const SummaryTile = ({
   </div>
 );
 
-// Everything BayShore has sent this client, filtered and paged in the browser.
-// Each piece opens its own page, where the client approves it or asks for changes.
+// Everything BayShore has sent this client, filtered and paged in the browser. Pieces
+// sent together are one row; it opens their page, where the client goes through them
+// and approves each or asks for changes.
 const ContentList = ({ items }: { items: ContentItem[] }) => {
   const [type, setType] = useState<ContentType | "all">("all");
   const [status, setStatus] = useState<ContentStatus | "all">("all");
@@ -102,24 +113,29 @@ const ContentList = ({ items }: { items: ContentItem[] }) => {
 
   const batchOptions = useMemo(() => Array.from(new Set(items.map(batchLabelOf))), [items]);
 
-  const counts = useMemo(
-    () => ({
-      waiting: items.filter((item) => item.status === "pending_approval").length,
-      revision: items.filter((item) => item.status === "revision_requested").length,
-      approved: items.filter((item) => item.status === "approved").length,
-    }),
-    [items]
-  );
+  // The tiles count pieces — each one is approved on its own — however they are grouped into rows.
+  const counts = useMemo(() => {
+    const pieces = items.flatMap(piecesOf);
+    return {
+      total: pieces.length,
+      waiting: pieces.filter((piece) => piece.status === "pending_approval").length,
+      revision: pieces.filter((piece) => piece.status === "revision_requested").length,
+      approved: pieces.filter((piece) => piece.status === "approved").length,
+    };
+  }, [items]);
 
+  // A row shows when any one of its pieces matches.
   const filtered = useMemo(() => {
     const needle = query.trim().toLowerCase();
-    return items.filter(
-      (item) =>
-        (type === "all" || item.type === type) &&
-        (status === "all" || item.status === status) &&
+    return items.filter((item) => {
+      const pieces = piecesOf(item);
+      return (
+        (type === "all" || pieces.some((piece) => piece.type === type)) &&
+        (status === "all" || pieces.some((piece) => piece.status === status)) &&
         (batch === "all" || batchLabelOf(item) === batch) &&
-        (!needle || item.title.toLowerCase().includes(needle))
-    );
+        (!needle || pieces.some((piece) => piece.title.toLowerCase().includes(needle)))
+      );
+    });
   }, [items, type, status, batch, query]);
 
   const pageCount = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
@@ -145,9 +161,6 @@ const ContentList = ({ items }: { items: ContentItem[] }) => {
     <div className={`${poppins.className} flex flex-col gap-4.5`}>
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
-          <div className="mb-1 text-[12px] text-[#4b5260]">
-            <span className="font-semibold text-[#0b0c24]">Content</span>
-          </div>
           <div className="text-[28px] leading-tight font-bold text-[#0b0c24]">Content</div>
           <div className="mt-1 text-[12.5px] text-[#4b5563]">
             Everything BayShore Communication has prepared for you. Open a piece to approve it or ask for changes.
@@ -156,7 +169,7 @@ const ContentList = ({ items }: { items: ContentItem[] }) => {
       </div>
 
       <div className="grid grid-cols-[repeat(auto-fit,minmax(210px,1fr))] gap-4">
-        <SummaryTile icon={Layers} label="Total Content" sub="All items shared with you" value={items.length} color="#2f5fd8" background="#d9e0ef" />
+        <SummaryTile icon={Layers} label="Total Content" sub="All items shared with you" value={counts.total} color="#2f5fd8" background="#d9e0ef" />
         <SummaryTile icon={Clock} label="Waiting for You" sub="Ready for your approval" value={counts.waiting} color="#d97706" background="#f8e4c6" />
         <SummaryTile icon={Pencil} label="In Revision" sub="Changes you requested" value={counts.revision} color="#dc2626" background="#f4d7db" />
         <SummaryTile icon={CheckCircle2} label="Approved" sub="Ready to publish" value={counts.approved} color="#16a34a" background="#d2e7d8" />
@@ -239,8 +252,13 @@ const ContentList = ({ items }: { items: ContentItem[] }) => {
               <tbody>
                 {visible.map((item, index) => {
                   const typeMeta = typeOf(item);
-                  const statusMeta = STATUSES[item.status];
                   const TypeIcon = typeMeta.icon;
+                  // Pieces sent together share this row: its first piece leads, the rest are counted.
+                  const pieces = piecesOf(item);
+                  const grouped = pieces.length > 1;
+                  const statusMeta = STATUSES[groupStatusOf(pieces)];
+                  const approved = pieces.filter((piece) => piece.status === "approved").length;
+                  const kinds = [...new Set(pieces.map((piece) => piece.type))].map((key) => TYPES[key] ?? TYPES.image);
                   const href = `/content/${item._id}`;
                   const creator = personNameOf(item.createdBy) ?? "BayShore Communication";
 
@@ -256,7 +274,10 @@ const ContentList = ({ items }: { items: ContentItem[] }) => {
                             <TypeIcon size={16} strokeWidth={2} />
                           </span>
                           <span className="min-w-0">
-                            <span className="block max-w-90 truncate font-medium text-[#1f2530] group-hover:text-[#2f5fd8]">{item.title}</span>
+                            <span className="block max-w-90 truncate font-medium text-[#1f2530] group-hover:text-[#2f5fd8]">
+                              {item.title}
+                              {grouped ? <span className="text-[#6b7280]"> +{pieces.length - 1} more</span> : null}
+                            </span>
                             <span className="mt-0.5 flex items-center gap-1.5 text-[10.5px] text-[#6b7280]">
                               <span className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-[#0b0c24] text-[7.5px] font-semibold text-white">
                                 {creator
@@ -265,17 +286,25 @@ const ContentList = ({ items }: { items: ContentItem[] }) => {
                                   .map((word) => word[0]?.toUpperCase())
                                   .join("")}
                               </span>
+                              {grouped ? <span className="font-medium text-[#384955]">{pieces.length} pieces ·</span> : null}
                               Created by <span className="font-medium text-[#384955]">{creator}</span>
                             </span>
                           </span>
                         </Link>
                       </td>
                       <td className={`${tdClass} text-center`}>
-                        <span
-                          className="inline-block rounded-md px-3 py-1 text-[10.5px] font-medium"
-                          style={{ background: typeMeta.background, color: typeMeta.color }}
-                        >
-                          {typeMeta.label}
+                        {/* A group can mix kinds: the first two, then how many more. */}
+                        <span className="inline-flex items-center gap-1">
+                          {kinds.slice(0, 2).map((kind) => (
+                            <span
+                              key={kind.label}
+                              className="inline-block rounded-md px-3 py-1 text-[10.5px] font-medium"
+                              style={{ background: kind.background, color: kind.color }}
+                            >
+                              {kind.label}
+                            </span>
+                          ))}
+                          {kinds.length > 2 ? <span className="text-[10.5px] font-medium text-[#6b7280]">+{kinds.length - 2}</span> : null}
                         </span>
                       </td>
                       <td className={`${tdClass} text-center`}>{batchLabelOf(item)}</td>
@@ -288,6 +317,11 @@ const ContentList = ({ items }: { items: ContentItem[] }) => {
                           <span className="h-1.5 w-1.5 rounded-full" style={{ background: statusMeta.dot }} />
                           {statusMeta.label}
                         </span>
+                        {grouped ? (
+                          <span className="mt-1 block text-[10.5px] text-[#6b7280]">
+                            {approved} of {pieces.length} approved
+                          </span>
+                        ) : null}
                       </td>
                       <td className={tdClass}>
                         <div className="flex justify-center gap-2">

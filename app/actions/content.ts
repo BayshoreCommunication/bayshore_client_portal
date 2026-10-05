@@ -40,10 +40,25 @@ export interface ContentComment {
   createdAt: string;
 }
 
+// What a piece tells its group-mates about itself.
+export interface ContentPiece {
+  _id: string;
+  type: ContentType;
+  title: string;
+  status: ContentStatus;
+  // The piece's first image, when it has one.
+  thumbnail?: string;
+}
+
 export interface ContentItem {
   _id: string;
   type: ContentType;
   title: string;
+
+  // Pieces BayShore sent together are one item: every piece in this one's group, in the
+  // order added (this piece included). Comes with a single piece and with a grouped list;
+  // a piece sent on its own is a group of one.
+  pieces?: ContentPiece[];
   batchMonth: string;
   // Older records may not have it — read those from isIndividual.
   batchType?: ContentBatchType;
@@ -128,6 +143,8 @@ export async function listMyContentAction(
     batchMonth?: string;
     batchType?: ContentBatchType;
     individual?: boolean;
+    // One item per group of pieces sent together (its first piece, with `pieces`), not one per piece.
+    grouped?: boolean;
   } = {},
 ): Promise<ContentActionResult<MyContentListData>> {
   const accessToken = await token();
@@ -141,6 +158,7 @@ export async function listMyContentAction(
     if (params.batchMonth) query.set("batchMonth", params.batchMonth);
     if (params.batchType) query.set("batchType", params.batchType);
     if (params.individual !== undefined) query.set("individual", String(params.individual));
+    if (params.grouped) query.set("grouped", "true");
 
     const response = await fetch(`${API}/me?${query}`, {
       headers: { Authorization: `Bearer ${accessToken}` },
@@ -183,6 +201,31 @@ export async function approveMyContentAction(id: string): Promise<ContentActionR
       headers: { Authorization: `Bearer ${accessToken}` },
     });
     if (!response.ok) return failure(response, "Failed to approve this item.");
+
+    const { data } = await response.json();
+    revalidatePath(LIST_PATH);
+    return { ok: true, data };
+  } catch {
+    return { ok: false, error: "Network error. Please try again." };
+  }
+}
+
+// The client's own edit of a piece: its caption and tags, while it is still open (waiting
+// for approval or in revision). The team sees a note on the piece's comments.
+export async function updateMyContentAction(
+  id: string,
+  changes: { caption: string; tags: string[] },
+): Promise<ContentActionResult<ContentItem>> {
+  const accessToken = await token();
+  if (!accessToken) return { ok: false, error: "Not authenticated." };
+
+  try {
+    const response = await fetch(`${API}/me/${id}`, {
+      method: "PATCH",
+      headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
+      body: JSON.stringify(changes),
+    });
+    if (!response.ok) return failure(response, "Failed to save your changes.");
 
     const { data } = await response.json();
     revalidatePath(LIST_PATH);

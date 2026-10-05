@@ -1,7 +1,7 @@
 import { notFound } from "next/navigation";
 import { getMyContentAction, listMyContentAction } from "@/app/actions/content";
 import ContentDetails from "@/component/content/ContentDetails";
-import { batchLabelOf } from "@/component/content/contentUi";
+import { batchLabelOf, piecesOf } from "@/component/content/contentUi";
 import { poppins } from "@/component/shared/fonts";
 
 const RELATED_LIMIT = 5;
@@ -26,11 +26,13 @@ const ContentDetailsPage = async ({ params }: { params: Promise<{ id: string }> 
   }
 
   const item = result.data;
-  // Other pieces from the same batch.
+  // Other pieces from the same batch — apart from the ones sent together with this one,
+  // which the page lists on their own.
   const batch = batchLabelOf(item);
+  const group = piecesOf(item).map((piece) => piece._id);
   const others = await listMyContentAction({ batchMonth: item.batchMonth, limit: 50 });
   const related = (others.data?.items ?? [])
-    .filter((other) => other._id !== item._id && batchLabelOf(other) === batch)
+    .filter((other) => !group.includes(other._id) && batchLabelOf(other) === batch)
     .slice(0, RELATED_LIMIT);
 
   return <ContentDetails item={item} related={related} />;

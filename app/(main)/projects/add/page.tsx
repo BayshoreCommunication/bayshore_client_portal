@@ -1,7 +1,7 @@
-import NewProject from "@/component/projects/NewProject";
+import ProjectForm from "@/component/projects/ProjectForm";
 
 const NewProjectPage = () => {
-  return <NewProject />;
+  return <ProjectForm />;
 };
 
 export default NewProjectPage;
