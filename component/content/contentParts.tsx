@@ -81,13 +81,13 @@ const isPdf = (file: ContentFile) => file.mimeType === "application/pdf" || /\.p
 // The tinted surface a preview sits on, so the piece itself stands apart from the white card around it.
 const stageClass = "rounded-xl border border-[#d6e0f1] bg-[#eaf0fa]";
 
-const FileView = ({ file }: { file: ContentFile }) => {
+const FileView = ({ file, poster }: { file: ContentFile; poster?: string }) => {
   if (file.media === "image") {
     // eslint-disable-next-line @next/next/no-img-element
     return <img src={file.url} alt={file.name} className="block max-h-[60vh] w-full rounded-lg object-contain" />;
   }
   if (file.media === "video") {
-    return <video src={file.url} controls className="block max-h-[60vh] w-full rounded-lg bg-black" />;
+    return <video src={file.url} controls poster={poster} className="block max-h-[60vh] w-full rounded-lg bg-black" />;
   }
   if (isPdf(file)) {
     return <iframe src={`${file.url}#view=FitH`} title={file.name} className="block h-[60vh] min-h-105 w-full rounded-lg border border-[#d6e0f1] bg-white" />;
@@ -213,7 +213,20 @@ const LinkView = ({ link, type, large }: { link: string; type: { label: string; 
 
 // A small thumbnail to switch between a piece's files. One the piece no longer uses —
 // replaced during a revision — is washed in yellow and says so.
-const Thumb = ({ file, active, previous, onClick }: { file: ContentFile; active: boolean; previous?: boolean; onClick: () => void }) => (
+const Thumb = ({
+  file,
+  active,
+  previous,
+  poster,
+  onClick,
+}: {
+  file: ContentFile;
+  active: boolean;
+  previous?: boolean;
+  // The video's cover image, when the piece has one.
+  poster?: string;
+  onClick: () => void;
+}) => (
   <button
     type="button"
     onClick={onClick}
@@ -228,7 +241,12 @@ const Thumb = ({ file, active, previous, onClick }: { file: ContentFile; active:
       <img src={file.url} alt="" className="h-full w-full object-cover" />
     ) : file.media === "video" ? (
       <>
-        <video src={file.url} muted preload="metadata" className="h-full w-full bg-black object-cover" />
+        {poster ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={poster} alt="" className="h-full w-full object-cover" />
+        ) : (
+          <video src={file.url} muted preload="metadata" className="h-full w-full bg-black object-cover" />
+        )}
         <span className="absolute inset-0 flex items-center justify-center text-white">
           <Play size={16} strokeWidth={2} fill="currentColor" />
         </span>
@@ -261,6 +279,7 @@ export const Preview = ({ item }: { item: ContentItem }) => {
   const all = [...latest, ...earlier, ...previous];
   const [shown, setShown] = useState(0);
   const type = typeOf(item);
+  const poster = item.videoThumbnail?.url;
   const index = Math.min(shown, all.length - 1);
   const current = all[index];
   const before = latest.length + earlier.length;
@@ -299,18 +318,18 @@ export const Preview = ({ item }: { item: ContentItem }) => {
             </div>
           ) : null}
           {/* Keyed by file, so switching shows the new one at once instead of the last one under a new label. */}
-          <FileView key={current.url} file={current} />
+          <FileView key={current.url} file={current} poster={poster} />
         </div>
       ) : null}
 
       {all.length > 1 ? (
         <div className="flex items-center gap-2 overflow-x-auto pb-1">
           {latest.map((file, at) => (
-            <Thumb key={file.url} file={file} active={at === index} onClick={() => setShown(at)} />
+            <Thumb key={file.url} file={file} poster={poster} active={at === index} onClick={() => setShown(at)} />
           ))}
           {earlier.length > 0 ? stripDivider : null}
           {earlier.map((file, at) => (
-            <Thumb key={file.url} file={file} previous active={latest.length + at === index} onClick={() => setShown(latest.length + at)} />
+            <Thumb key={file.url} file={file} previous poster={poster} active={latest.length + at === index} onClick={() => setShown(latest.length + at)} />
           ))}
           {previous.length > 0 && before > 0 ? stripDivider : null}
           {previous.map((file, at) => (
@@ -320,6 +339,24 @@ export const Preview = ({ item }: { item: ContentItem }) => {
             {index + 1} of {all.length}
           </span>
         </div>
+      ) : null}
+
+      {/* The video's cover, on its own too: once the video plays, the player no longer shows it. */}
+      {item.videoThumbnail ? (
+        <a
+          href={item.videoThumbnail.url}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="flex items-center gap-3 rounded-xl border border-[#eceef1] bg-[#fafbfc] p-3 text-inherit no-underline hover:bg-[#f3f4f6]"
+        >
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={item.videoThumbnail.url} alt="" className="h-14 w-24 shrink-0 rounded-lg bg-[#f3f4f6] object-cover" />
+          <span className="min-w-0 flex-1">
+            <span className="block text-[13px] font-semibold text-[#0b0c24]">Video thumbnail</span>
+            <span className="block truncate text-[11.5px] text-[#6b7280]">{item.videoThumbnail.name || "Cover image"}</span>
+          </span>
+          <ExternalLink size={15} strokeWidth={2} className="shrink-0 text-[#4b5260]" />
+        </a>
       ) : null}
 
       {item.link ? <LinkView link={item.link} type={type} large={!current} /> : null}
