@@ -28,6 +28,17 @@ export interface ContentFile {
   size: number;
   mimeType: string;
   media: ContentMedia;
+  // When it was added to the piece — the same moment for files added in one save. Missing on
+  // files from before this was kept, and on comment attachments.
+  uploadedAt?: string;
+}
+
+// A file the piece used to have: BayShore replaced it while answering a revision, and it is
+// kept so the two can be compared.
+export interface ContentPreviousFile extends ContentFile {
+  replacedAt: string;
+  // The revision it was replaced in.
+  revision?: number;
 }
 
 export interface ContentComment {
@@ -37,7 +48,35 @@ export interface ContentComment {
   // May be empty when the comment is only attachments.
   text: string;
   attachments?: ContentFile[];
+  // On a request for changes: the revision round it belongs to (1, 2, …). The first comment
+  // with a number is the one that opened that round.
+  revision?: number;
   createdAt: string;
+}
+
+// One thing the client asked for during a revision: their words, and any files they sent.
+export interface ContentRevisionRequest {
+  text: string;
+  attachments?: ContentFile[];
+  name?: string;
+  createdAt: string;
+}
+
+// One round of changes on a piece: what the client asked for, and BayShore's answer. A piece —
+// a reel, a post, an image, a video — can go through any number of these.
+export interface ContentRevision {
+  // 1, 2, … in the order they were asked for.
+  number: number;
+  // Empty when BayShore opened the round on the client's behalf.
+  requests: ContentRevisionRequest[];
+  requestedAt: string;
+  requestedByName?: string;
+  // BayShore's feedback on it, in order: what was changed, with any files.
+  responses?: ContentRevisionRequest[];
+  // Set once the team has sent the revised piece back, with their note if they left one.
+  submittedAt?: string;
+  submittedByName?: string;
+  note?: string;
 }
 
 // What a piece tells its group-mates about itself.
@@ -46,8 +85,16 @@ export interface ContentPiece {
   type: ContentType;
   title: string;
   status: ContentStatus;
+  // How many times the piece has been sent back for a revision.
+  revisionCount?: number;
+  // In revision, with no reply from BayShore since the client last asked for changes.
+  awaitingTeam?: boolean;
+  // The piece's revisions, oldest first — sent with a single piece's page, not with lists.
+  revisions?: ContentRevision[];
   // The piece's first image, when it has one.
   thumbnail?: string;
+  // The piece's messages, oldest first — sent with a single piece's page, not with lists.
+  comments?: ContentComment[];
 }
 
 export interface ContentItem {
@@ -68,10 +115,16 @@ export interface ContentItem {
   isIndividual: boolean;
   sentReason?: string;
   status: ContentStatus;
+  // How many times the piece has been sent back for a revision.
+  revisionCount?: number;
+  // Every revision the piece has been through, oldest first.
+  revisions?: ContentRevision[];
 
   // Up to 10 files, and/or a pasted link (video, blog, website, email).
   files?: ContentFile[];
   link?: string;
+  // Files replaced during a revision, newest first. `files` is always the piece as it stands.
+  previousFiles?: ContentPreviousFile[];
   pageName?: string;
   pageUrl?: string;
   subject?: string;
@@ -191,14 +244,17 @@ export async function getMyContentAction(id: string): Promise<ContentActionResul
   }
 }
 
-export async function approveMyContentAction(id: string): Promise<ContentActionResult<ContentItem>> {
+// `comment` is an optional note left with the approval; it joins the piece's comments.
+export async function approveMyContentAction(id: string, comment?: string): Promise<ContentActionResult<ContentItem>> {
   const accessToken = await token();
   if (!accessToken) return { ok: false, error: "Not authenticated." };
 
   try {
+    const note = comment?.trim();
     const response = await fetch(`${API}/me/${id}/approve`, {
       method: "PATCH",
-      headers: { Authorization: `Bearer ${accessToken}` },
+      headers: { Authorization: `Bearer ${accessToken}`, ...(note ? { "Content-Type": "application/json" } : {}) },
+      body: note ? JSON.stringify({ comment: note }) : undefined,
     });
     if (!response.ok) return failure(response, "Failed to approve this item.");
 

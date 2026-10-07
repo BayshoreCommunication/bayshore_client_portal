@@ -10,7 +10,17 @@ import {
   Smartphone,
   type LucideIcon,
 } from "lucide-react";
-import type { ContentFile, ContentItem, ContentMedia, ContentPiece, ContentStatus, ContentType } from "@/app/actions/content";
+import type {
+  ContentBatchType,
+  ContentComment,
+  ContentFile,
+  ContentItem,
+  ContentMedia,
+  ContentPiece,
+  ContentRevision,
+  ContentStatus,
+  ContentType,
+} from "@/app/actions/content";
 
 // Badge and pill colors for each kind of content — the same kinds the team can prepare.
 export const CONTENT_TYPES: Record<ContentType, { label: string; icon: LucideIcon; color: string; background: string }> = {
@@ -41,6 +51,17 @@ export const batchLabelOf = (item: Pick<ContentItem, "batchType" | "isIndividual
   return item.batchMonth;
 };
 
+// How a piece was scheduled, in words: "Monthly Post", "Weekly Post", "Event Post", or
+// "Individual Post" for one sent outside the regular batch. Older records only carry isIndividual.
+const BATCH_TYPE_LABELS: Record<ContentBatchType, string> = {
+  monthly: "Monthly Post",
+  weekly: "Weekly Post",
+  event: "Event Post",
+  individual: "Individual Post",
+};
+export const batchTypeLabelOf = (item: Pick<ContentItem, "batchType" | "isIndividual">) =>
+  BATCH_TYPE_LABELS[item.batchType ?? (item.isIndividual ? "individual" : "monthly")];
+
 // A piece's files. Older records kept a single file in imageUrl / videoUrl / docUrl.
 export const filesOf = (item: ContentItem): ContentFile[] => {
   if (item.files?.length) return item.files;
@@ -49,6 +70,25 @@ export const filesOf = (item: ContentItem): ContentFile[] => {
   if (item.videoUrl && item.videoUrl !== item.link) legacy.push({ url: item.videoUrl, name: item.title, size: 0, mimeType: "", media: "video" });
   if (item.docUrl && item.docUrl !== item.link) legacy.push({ url: item.docUrl, name: item.docName || item.title, size: 0, mimeType: "", media: "doc" });
   return legacy;
+};
+
+// A piece's files, by version. Everything it had when it was first sent is one version; files
+// added in a later save are a newer one. `latest` is the newest version — what to show first
+// — and `earlier` the files still in the piece from before it, newest first. A file from
+// before upload times were kept counts as there from the start.
+export const versionsOf = (item: ContentItem): { latest: ContentFile[]; earlier: ContentFile[] } => {
+  const files = filesOf(item);
+  // Not sent yet (a draft): nothing in it is a later version.
+  const sentAt = item.submittedAt ? Date.parse(item.submittedAt) : Infinity;
+  const versionOf = (file: ContentFile) => {
+    const at = file.uploadedAt ? Date.parse(file.uploadedAt) : 0;
+    return at <= sentAt ? 0 : at;
+  };
+  const newest = Math.max(0, ...files.map(versionOf));
+  return {
+    latest: files.filter((file) => versionOf(file) === newest),
+    earlier: files.filter((file) => versionOf(file) < newest).sort((first, second) => versionOf(second) - versionOf(first)),
+  };
 };
 
 // ── Files attached to feedback — the backend's rules (models/content.model.ts) ──
@@ -99,7 +139,53 @@ export const CONTENT_STATUSES: Record<ContentStatus, { label: string; color: str
 
 // The pieces sent together with this one (itself included). A piece sent alone is a group of one.
 export const piecesOf = (item: ContentItem): ContentPiece[] =>
-  item.pieces?.length ? item.pieces : [{ _id: item._id, type: item.type, title: item.title, status: item.status }];
+  item.pieces?.length
+    ? item.pieces
+    : [{ _id: item._id, type: item.type, title: item.title, status: item.status, revisionCount: item.revisionCount, revisions: item.revisions }];
+
+// One message in a group's conversation: which piece it was written on (`at`: where that
+// piece sits in the group), and whether it is the one that asked for its revision — the
+// first on its piece to carry that revision's number.
+export type ThreadEntry = ContentComment & { piece: ContentPiece; at: number; asks: boolean };
+
+// The conversation on a piece's page: its own messages (`comments`) and those written on the
+// pieces sent with it, all in one, oldest first.
+export const threadOf = (pieces: ContentPiece[], currentId: string, comments: ContentComment[]): ThreadEntry[] =>
+  pieces
+    .flatMap((piece, at) => {
+      const own = piece._id === currentId ? comments : (piece.comments ?? []);
+      return own.map((entry, index) => ({
+        ...entry,
+        piece,
+        at,
+        asks: Boolean(entry.revision) && own.findIndex((other) => other.revision === entry.revision) === index,
+      }));
+    })
+    .sort((first, second) => (Date.parse(first.createdAt) || 0) - (Date.parse(second.createdAt) || 0));
+
+// A piece's revisions, newest first. They come with the piece; one revised before they were
+// kept is read from its comments instead (`comments`: the requests that carry a round number),
+// and a round nobody left a note on is still listed, with nothing asked.
+export const revisionsOf = (piece: Pick<ContentPiece, "revisions" | "revisionCount">, comments: ContentComment[] = []): ContentRevision[] => {
+  if (piece.revisions?.length) return [...piece.revisions].sort((first, second) => second.number - first.number);
+
+  const tagged = comments.filter((entry) => entry.revision);
+  const rounds = Math.max(piece.revisionCount ?? 0, ...tagged.map((entry) => entry.revision ?? 0));
+  return Array.from({ length: rounds }, (_, index) => rounds - index).map((number) => {
+    const requests = tagged
+      .filter((entry) => entry.revision === number)
+      .map(({ text, attachments, name, createdAt }) => ({ text, attachments, name, createdAt }));
+    return { number, requests, requestedAt: requests[0]?.createdAt ?? "", requestedByName: requests[0]?.name };
+  });
+};
+
+// What to say about a piece's revisions beside its status: the round it is in while in
+// revision ("Revision 2"), otherwise how many it has been through ("2 revisions"). Null when none.
+export const revisionNoteOf = (piece: Pick<ContentPiece, "status" | "revisionCount">) => {
+  const count = piece.revisionCount ?? 0;
+  if (count === 0) return null;
+  return piece.status === "revision_requested" ? `Revision ${count}` : `${count} revision${count === 1 ? "" : "s"}`;
+};
 
 // Where a group stands as a whole: whatever most needs attention among its pieces —
 // a revision under way first, then anything still waiting for approval.

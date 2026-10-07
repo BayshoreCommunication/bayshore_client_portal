@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, useTransition, type DragEvent, type KeyboardEvent } from "react";
+import { useEffect, useRef, useState, useTransition, type KeyboardEvent } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
@@ -15,10 +15,10 @@ import {
   Loader2,
   Mail,
   Megaphone,
-  MessageSquare,
+  MessagesSquare,
   MousePointerClick,
   Pencil,
-  SendHorizontal,
+  RotateCcw,
   Tag,
   User,
   X,
@@ -29,6 +29,7 @@ import {
   updateMyContentAction,
   type ContentCommentResponse,
   type ContentItem,
+  type ContentPiece,
 } from "@/app/actions/content";
 import { useSessionUser } from "@/component/shared/SessionUser";
 import { poppins } from "@/component/shared/fonts";
@@ -45,8 +46,23 @@ import {
   StatusBadge,
   useAttachments,
 } from "./contentParts";
-import { CONTENT_STATUSES, batchLabelOf, formatDate, personNameOf, piecesOf, shortDate, typeOf } from "./contentUi";
+import {
+  CONTENT_STATUSES,
+  MAX_ATTACHMENTS,
+  batchLabelOf,
+  batchTypeLabelOf,
+  formatDate,
+  personNameOf,
+  piecesOf,
+  revisionNoteOf,
+  threadOf,
+  typeOf,
+} from "./contentUi";
+import ReviewDialog from "./ReviewDialog";
+import RevisionHistory, { REVIEW_ANCHOR } from "./RevisionHistory";
+import DateTime from "./DateTime";
 import GroupPieces, { forgetPieces } from "./GroupPieces";
+import MessageBox from "./MessageBox";
 
 // Sends feedback to the upload route, reporting progress (0–100) as files go up.
 const postFeedback = (id: string, form: FormData, onProgress: (percent: number) => void) =>
@@ -66,15 +82,11 @@ const postFeedback = (id: string, form: FormData, onProgress: (percent: number) 
     request.send(form);
   });
 
-const STATUS_HELP = {
-  pending_approval: "BayShore is waiting for your review. Approve it, or tell the team what to change.",
-  revision_requested: "You asked for changes — the team is working on them. You can add more feedback, or approve it as it is.",
-  approved: "You approved this piece. It's final and ready to publish.",
-} as const;
-
 // One piece the team sent: the files, the text, and the conversation. The client
-// approves it or asks for changes here — asking always goes with a comment, which
-// moves the piece to "In Revision".
+// approves it or asks for changes here, each in its own dialog — asking always goes with a
+// comment, which moves the piece to "In Revision" (each time that happens is one more
+// revision, and the page says how many there have been), an approved piece included. A
+// message from the Messages box is only a message: the piece stays where it is.
 // ── Caption and tags, which the client can rewrite ───────────────────────────
 
 // The backend's limits (validators/content.validator.ts).
@@ -302,100 +314,187 @@ const TextAndDetails = ({
 
 const ContentDetails = ({ item, related }: { item: ContentItem; related: ContentItem[] }) => {
   const router = useRouter();
-  const { name, initials } = useSessionUser();
+  const { name } = useSessionUser();
   const [isRefreshing, startTransition] = useTransition();
 
-  const [confirming, setConfirming] = useState(false);
+  // A decision goes through a dialog: "approve", or "feedback" (a request for changes).
+  // Each keeps what was typed into it, and what went wrong with the last attempt.
+  const [dialog, setDialog] = useState<"approve" | "feedback" | null>(null);
+  // The piece the dialog is about: the one on screen, or another of its group picked from the group card.
+  const [targetId, setTargetId] = useState(item._id);
+  const [approveNote, setApproveNote] = useState("");
+  const [feedbackText, setFeedbackText] = useState("");
+  // Files picked in the feedback dialog, and how far their upload has got (0–100).
+  const feedbackFiles = useAttachments();
+  const [feedbackProgress, setFeedbackProgress] = useState<number | null>(null);
+  const [dialogError, setDialogError] = useState<string | null>(null);
   const [approving, setApproving] = useState(false);
-  const [draft, setDraft] = useState("");
-  const [progress, setProgress] = useState<number | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [sending, setSending] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
-  const [dragging, setDragging] = useState(false);
-  // The last thing submitted, so its button keeps spinning while the page reloads.
-  const [action, setAction] = useState<"approve" | "send" | null>(null);
-  const attachments = useAttachments();
-  const boxRef = useRef<HTMLTextAreaElement>(null);
-  const composerRef = useRef<HTMLDivElement>(null);
+
+  // The message box under the thread: plain messages, which never move the piece.
+  const [messageText, setMessageText] = useState("");
+  const messageFiles = useAttachments();
+  const [messageProgress, setMessageProgress] = useState<number | null>(null);
+  const [messageError, setMessageError] = useState<string | null>(null);
+  const threadRef = useRef<HTMLDivElement>(null);
+
+  // The box kept open under a revision that is under way, for whatever was left out of it.
+  const [moreText, setMoreText] = useState("");
+  const moreFiles = useAttachments();
+  const [moreProgress, setMoreProgress] = useState<number | null>(null);
+  const [moreError, setMoreError] = useState<string | null>(null);
 
   const { status, comments } = item;
   const type = typeOf(item);
   const isApproved = status === "approved";
+  const revisions = item.revisionCount ?? 0;
+  const revisionNote = revisionNoteOf(item);
   const batch = batchLabelOf(item);
   const pieces = piecesOf(item);
-  const sending = progress !== null;
-  const busy = approving || sending || isRefreshing;
-  const approveLoading = approving || (isRefreshing && action === "approve");
-  const sendLoading = sending || (isRefreshing && action === "send");
-  const hasFeedback = draft.trim() !== "" || attachments.files.length > 0;
-  const canSend = hasFeedback && !busy;
+  // Pieces sent together share one conversation: this piece's messages and the others', in one.
+  const thread = threadOf(pieces, item._id, comments);
+  const target = pieces.find((piece) => piece._id === targetId) ?? pieces.find((piece) => piece._id === item._id) ?? pieces[0];
+  const targetRevisions = target.revisionCount ?? 0;
+  const targetElsewhere = target._id !== item._id;
+  // The revision request is with BayShore and they haven't answered yet — nothing more to ask for until they do.
+  const awaitingTeam = status === "revision_requested" && Boolean(pieces.find((piece) => piece._id === item._id)?.awaitingTeam);
+  const messaging = messageProgress !== null;
+  const busy = approving || sending || messaging || moreProgress !== null || isRefreshing;
+  const canMessage = (messageText.trim() !== "" || messageFiles.files.length > 0) && !messaging;
 
   const refresh = () => startTransition(() => router.refresh());
 
   // This piece is on screen now — whichever piece of its group was being headed for, it has arrived.
   useEffect(() => forgetPieces(), [item._id]);
 
+  // Like any chat, the thread opens on its latest message and follows new ones.
+  useEffect(() => {
+    if (threadRef.current) threadRef.current.scrollTop = threadRef.current.scrollHeight;
+  }, [thread.length]);
+
+  // Opens a dialog — about the piece on screen unless another of its group is named. Nothing
+  // happens to the piece until it is confirmed there.
+  const openDialog = (kind: "approve" | "feedback", piece?: ContentPiece) => {
+    const id = piece?._id ?? item._id;
+    // What was typed about one piece must not follow the dialog to another.
+    if (id !== targetId) {
+      setApproveNote("");
+      setFeedbackText("");
+      feedbackFiles.clear();
+    }
+    setDialogError(null);
+    setTargetId(id);
+    setDialog(kind);
+  };
+
   const approve = async () => {
-    setError(null);
-    setAction("approve");
+    setDialogError(null);
     setApproving(true);
-    const result = await approveMyContentAction(item._id);
+    const result = await approveMyContentAction(target._id, approveNote);
     setApproving(false);
-    setConfirming(false);
     if (!result.ok) {
-      setError(result.error ?? "Couldn't approve this piece. Please try again.");
+      // The dialog stays open, so a comment already typed isn't lost.
+      setDialogError(result.error ?? "Couldn't approve this piece. Please try again.");
       return;
     }
-    setNotice("Approved — thank you! BayShore has been notified.");
+    setDialog(null);
+    setApproveNote("");
+    setNotice(targetElsewhere ? `“${target.title}” approved — thank you! BayShore has been notified.` : "Approved — thank you! BayShore has been notified.");
     refresh();
   };
 
-  // Point the client at the feedback box.
-  const requestChanges = () => {
-    composerRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
-    boxRef.current?.focus({ preventScroll: true });
-  };
-
-  const send = async () => {
-    if (!canSend) return;
-    setError(null);
-    setAction("send");
+  // A plain message from the box under the thread — words, files, or both. The piece stays
+  // where it is; asking for changes is the dialog's job.
+  const sendMessage = async () => {
+    if (!canMessage) return;
+    setMessageError(null);
     const form = new FormData();
-    form.set("text", draft.trim());
-    for (const entry of attachments.files) form.append("files", entry.file, entry.file.name);
+    form.set("kind", "message");
+    form.set("text", messageText.trim());
+    for (const entry of messageFiles.files) form.append("files", entry.file, entry.file.name);
 
-    setProgress(0);
+    setMessageProgress(0);
     try {
-      const { status: code, body } = await postFeedback(item._id, form, setProgress);
+      const { status: code, body } = await postFeedback(item._id, form, setMessageProgress);
       if (code < 200 || code >= 300) {
-        setError([body.message, ...(body.errors ?? [])].filter(Boolean).join(" — "));
+        setMessageError([body.message, ...(body.errors ?? [])].filter(Boolean).join(" — "));
         return;
       }
-      setDraft("");
-      attachments.clear();
-      setNotice(status === "pending_approval" ? "Feedback sent — the team will make the changes." : "Feedback sent.");
+      setMessageText("");
+      messageFiles.clear();
       refresh();
     } catch {
-      setError("Couldn't reach the server. Check your connection and try again.");
+      setMessageError("Couldn't reach the server. Check your connection and try again.");
     } finally {
-      setProgress(null);
+      setMessageProgress(null);
     }
   };
 
-  const dropProps = isApproved
-    ? {}
-    : {
-        onDragOver: (event: DragEvent) => {
-          event.preventDefault();
-          setDragging(true);
-        },
-        onDragLeave: () => setDragging(false),
-        onDrop: (event: DragEvent) => {
-          event.preventDefault();
-          setDragging(false);
-          attachments.add(Array.from(event.dataTransfer.files));
-        },
-      };
+  // Something more for the revision under way — words, files, or both — from the box under it.
+  const addToRevision = async () => {
+    const text = moreText.trim();
+    if (!text && moreFiles.files.length === 0) return;
+    setMoreError(null);
+    const form = new FormData();
+    form.set("kind", "revision");
+    form.set("text", text);
+    for (const entry of moreFiles.files) form.append("files", entry.file, entry.file.name);
+
+    setMoreProgress(0);
+    try {
+      const { status: code, body } = await postFeedback(item._id, form, setMoreProgress);
+      if (code < 200 || code >= 300) {
+        setMoreError([body.message, ...(body.errors ?? [])].filter(Boolean).join(" — "));
+        return;
+      }
+      setMoreText("");
+      moreFiles.clear();
+      setNotice("Added to your revision request.");
+      refresh();
+    } catch {
+      setMoreError("Couldn't reach the server. Check your connection and try again.");
+    } finally {
+      setMoreProgress(null);
+    }
+  };
+
+  // The dialog's request for changes — words, files, or both. It puts the piece In Revision,
+  // reopening it if it was approved.
+  const sendFeedback = async () => {
+    const text = feedbackText.trim();
+    if (!text && feedbackFiles.files.length === 0) return;
+    setDialogError(null);
+    setSending(true);
+    setFeedbackProgress(0);
+    const form = new FormData();
+    form.set("kind", "revision");
+    form.set("text", text);
+    for (const entry of feedbackFiles.files) form.append("files", entry.file, entry.file.name);
+    try {
+      const { status: code, body } = await postFeedback(target._id, form, setFeedbackProgress);
+      if (code < 200 || code >= 300) {
+        setDialogError([body.message, ...(body.errors ?? [])].filter(Boolean).join(" — "));
+        return;
+      }
+      setDialog(null);
+      setFeedbackText("");
+      feedbackFiles.clear();
+      setNotice(
+        target.status === "revision_requested"
+          ? "Feedback sent."
+          : targetElsewhere
+            ? `Revision requested for “${target.title}” — the team will make the changes.`
+            : "Revision requested — the team will make the changes.",
+      );
+      refresh();
+    } catch {
+      setDialogError("Couldn't reach the server. Check your connection and try again.");
+    } finally {
+      setSending(false);
+      setFeedbackProgress(null);
+    }
+  };
 
   const extras = [
     item.pageName ? { icon: Globe, label: "Page", value: item.pageUrl ? `${item.pageName} · ${item.pageUrl}` : item.pageName } : null,
@@ -411,6 +510,11 @@ const ContentDetails = ({ item, related }: { item: ContentItem; related: Content
           <h1 className="text-[28px] leading-tight font-bold text-[#0b0c24]">{item.title}</h1>
           <div className="mt-2 flex flex-wrap items-center gap-2 text-[12px] text-[#4b5563]">
             <StatusBadge status={status} />
+            {revisionNote ? (
+              <span className="inline-flex items-center gap-1 rounded-md bg-[#f3f4f6] px-2.5 py-1 text-[10.5px] font-medium text-[#4b5260]">
+                <RotateCcw size={11} strokeWidth={2.25} /> {revisionNote}
+              </span>
+            ) : null}
             <span className="rounded-md px-2.5 py-1 text-[10.5px] font-medium" style={{ background: type.background, color: type.color }}>
               {type.label}
             </span>
@@ -440,12 +544,6 @@ const ContentDetails = ({ item, related }: { item: ContentItem; related: Content
         </div>
       ) : null}
 
-      {error ? (
-        <div role="alert" className="rounded-xl border border-[#f5c2c2] bg-[#fdecec] px-4 py-3 text-[12.5px] font-medium text-[#b42318]">
-          {error}
-        </div>
-      ) : null}
-
       {item.sentReason ? (
         <div className="flex items-start gap-2.5 rounded-xl border border-[#f1dfbf] bg-[#fdf6ea] px-4 py-3 text-[12px] text-[#7a4b0f]">
           <Mail size={15} strokeWidth={2} className="mt-0.5 shrink-0" />
@@ -455,13 +553,47 @@ const ContentDetails = ({ item, related }: { item: ContentItem; related: Content
         </div>
       ) : null}
 
-      {pieces.length > 1 ? <GroupPieces pieces={pieces} currentId={item._id} /> : null}
+      {pieces.length > 1 ? <GroupPieces pieces={pieces} currentId={item._id} onApprove={(piece) => openDialog("approve", piece)} onRevise={(piece) => openDialog("feedback", piece)} /> : null}
 
-      <div className="grid items-start gap-4.5 lg:grid-cols-[minmax(0,1fr)_330px]">
+      <div className="grid items-start gap-4.5 lg:grid-cols-[minmax(0,1fr)_380px]">
         <div className="flex flex-col gap-4.5">
-          <Card badge={type} title="Preview">
-            <Preview item={item} />
-          </Card>
+          {/* Where the page opens when a piece is reached from the Revisions list. A piece sent on its
+              own has no group card to decide it from, so its buttons sit in this card's heading. */}
+          <div id={REVIEW_ANCHOR} className="scroll-mt-4">
+            <Card
+              badge={type}
+              title="Preview"
+              aside={
+                pieces.length > 1 ? undefined : (
+                  <div className="flex items-center gap-2">
+                    {awaitingTeam ? null : (
+                      <button
+                        type="button"
+                        onClick={() => openDialog("feedback")}
+                        disabled={busy}
+                        className="inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-lg border border-[#e2e5e9] bg-white px-3 text-[11.5px] font-medium text-[#1f2530] hover:bg-[#f3f4f6] disabled:cursor-not-allowed"
+                      >
+                        <RotateCcw size={12} strokeWidth={2} />{" "}
+                        {status === "revision_requested" ? "Add more feedback" : isApproved ? "Request for Revision" : "Request a Revision"}
+                      </button>
+                    )}
+                    {isApproved ? null : (
+                      <button
+                        type="button"
+                        onClick={() => openDialog("approve")}
+                        disabled={busy}
+                        className="inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-lg bg-[#16a34a] px-3 text-[11.5px] font-medium text-white hover:bg-[#15803d] disabled:cursor-not-allowed"
+                      >
+                        <Check size={13} strokeWidth={2.5} /> {status === "revision_requested" ? "Approve as it is" : "Approve"}
+                      </button>
+                    )}
+                  </div>
+                )
+              }
+            >
+              <Preview item={item} />
+            </Card>
+          </div>
 
           <TextAndDetails
             item={item}
@@ -473,201 +605,147 @@ const ContentDetails = ({ item, related }: { item: ContentItem; related: Content
             }}
           />
 
+          {/* This piece's revisions only — the others sent with it list theirs on their own pages — and the way to ask for another. */}
+          <RevisionHistory
+            pieces={pieces}
+            currentId={item._id}
+            comments={comments}
+            addMore={
+              <MessageBox
+                value={moreText}
+                onChange={setMoreText}
+                files={moreFiles}
+                progress={moreProgress}
+                error={moreError}
+                onSend={addToRevision}
+                placeholder="Missed something? Add it here…"
+                label="Add to this revision"
+              />
+            }
+            action={
+              awaitingTeam ? null : (
+                <button
+                  type="button"
+                  onClick={() => openDialog("feedback")}
+                  disabled={busy}
+                  className="inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-lg border border-[#e2e5e9] bg-white px-3 text-[11.5px] font-medium text-[#1f2530] hover:border-[#2f5fd8] hover:text-[#2f5fd8] disabled:cursor-not-allowed"
+                >
+                  <RotateCcw size={12} strokeWidth={2} />{" "}
+                  {status === "revision_requested" ? "Add more feedback" : isApproved ? "Request for Revision" : "Request a Revision"}
+                </button>
+              )
+            }
+          />
+        </div>
+
+        {/* Stays in view while the piece on the left is scrolled; on a short screen it scrolls on its own. */}
+        <div className="flex flex-col gap-4.5 lg:sticky lg:top-4 lg:max-h-[calc(100vh-2rem)] lg:overflow-y-auto lg:pb-1">
           <Card
-            badge={{ icon: MessageSquare, ...BLUE }}
-            title="Comments"
-            aside={<span className="rounded-full bg-[#f3f4f6] px-2.5 py-1 text-[10.5px] font-medium text-[#4b5260]">{comments.length}</span>}
+            badge={{ icon: MessagesSquare, ...BLUE }}
+            title="Messages"
+            divided
+            aside={<span className="rounded-full bg-[#f3f4f6] px-2.5 py-1 text-[10.5px] font-medium text-[#4b5260]">{thread.length}</span>}
           >
-            {comments.length > 0 ? (
-              <div className="flex flex-col gap-4">
-                {comments.map((entry, index) => {
+            {thread.length > 0 ? (
+              <div ref={threadRef} className="-mr-1.5 flex h-60 flex-col gap-3.5 overflow-y-auto pr-1.5">
+                {thread.map((entry, index) => {
+                  // The client's side sits on the right, BayShore's on the left.
                   const fromClient = entry.author === "client";
                   const author = entry.name ?? personNameOf(entry.user) ?? (fromClient ? name : "BayShore");
                   return (
-                    <div className="flex gap-3" key={`${entry.createdAt}-${index}`}>
-                      <span
-                        className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-[11px] font-semibold text-white ${
-                          fromClient ? "bg-[#2f5fd8]" : "bg-[#0b0c24]"
-                        }`}
-                      >
-                        {fromClient && !entry.name ? initials : author.charAt(0).toUpperCase()}
-                      </span>
-                      <div className="min-w-0 flex-1">
-                        <div className="text-[12px] font-semibold text-[#0b0c24]">
-                          {author}
-                          <span
-                            className={`ml-1.5 rounded px-1.5 py-px text-[9.5px] font-semibold ${
-                              fromClient ? "bg-[#d9e0ef] text-[#2f5fd8]" : "bg-[#eceef1] text-[#4b5260]"
-                            }`}
-                          >
-                            {fromClient ? "You" : "BayShore"}
+                    <div className={`flex flex-col ${fromClient ? "items-end" : "items-start"}`} key={`${entry.createdAt}-${index}`}>
+                      <div className={`mb-1 flex max-w-full flex-wrap items-center gap-1.5 text-[10.5px] ${fromClient ? "justify-end" : ""}`}>
+                        <span className="font-semibold text-[#0b0c24]">{author}</span>
+                        {fromClient ? null : <span className="rounded bg-[#eceef1] px-1.5 py-px text-[9.5px] font-semibold text-[#4b5260]">BayShore</span>}
+                        {entry.revision ? (
+                          <span className="rounded bg-[#f8dcdc] px-1.5 py-px text-[9.5px] font-semibold text-[#b91c1c]">
+                            {entry.asks ? "Revision request" : "Revision"} {entry.revision}
                           </span>
-                          <span className="ml-1.5 font-normal text-[#9ca3af]">{shortDate(entry.createdAt)}</span>
-                        </div>
-                        {entry.text ? (
-                          <div className="mt-1 w-fit max-w-full rounded-xl rounded-tl-sm bg-[#f5f6f8] px-3.5 py-2.5 text-[12.5px] leading-normal break-words whitespace-pre-line text-[#374151]">
-                            {entry.text}
-                          </div>
                         ) : null}
-                        {entry.attachments?.length ? (
-                          <div className="mt-2 flex flex-wrap gap-2">
-                            {entry.attachments.map((file) => (
-                              <AttachmentView key={file.url} file={file} />
-                            ))}
-                          </div>
-                        ) : null}
+                        {/* Which piece of the group the message is about; another piece's opens it. */}
+                        {pieces.length < 2 ? null : entry.piece._id === item._id ? (
+                          <span className="rounded bg-[#eceef1] px-1.5 py-px text-[9.5px] font-semibold text-[#4b5260]">Piece {entry.at + 1} · this piece</span>
+                        ) : (
+                          <Link
+                            href={`/content/${entry.piece._id}`}
+                            title={entry.piece.title}
+                            className="max-w-44 truncate rounded bg-[#eceef1] px-1.5 py-px text-[9.5px] font-semibold text-[#4b5260] no-underline hover:bg-[#d9e0ef] hover:text-[#2f5fd8]"
+                          >
+                            Piece {entry.at + 1} · {entry.piece.title}
+                          </Link>
+                        )}
+                        <span className="text-[#9ca3af]">
+                          <DateTime iso={entry.createdAt} />
+                        </span>
                       </div>
+                      {entry.text ? (
+                        <div
+                          className={`max-w-[88%] rounded-2xl px-3.5 py-2 text-[12.5px] leading-normal whitespace-pre-line wrap-anywhere ${
+                            fromClient ? "rounded-tr-sm bg-[#2f5fd8] text-white" : "rounded-tl-sm bg-[#f1f2f4] text-[#374151]"
+                          }`}
+                        >
+                          {entry.text}
+                        </div>
+                      ) : null}
+                      {entry.attachments?.length ? (
+                        <div className={`mt-1.5 flex flex-wrap gap-2 ${fromClient ? "justify-end" : ""}`}>
+                          {entry.attachments.map((file) => (
+                            <AttachmentView key={file.url} file={file} />
+                          ))}
+                        </div>
+                      ) : null}
                     </div>
                   );
                 })}
               </div>
             ) : (
-              <div className="py-3 text-center text-[12px] text-[#6b7280]">No comments yet.</div>
-            )}
-
-            {!isApproved ? (
-              <div
-                ref={composerRef}
-                {...dropProps}
-                className={`mt-4 rounded-xl border p-2.5 transition-colors ${
-                  dragging ? "border-dashed border-[#2f5fd8] bg-[#f3f6fd]" : "border-[#e2e5e9] bg-white focus-within:border-[#9aa3af]"
-                }`}
-              >
-                {attachments.files.length > 0 ? (
-                  <div className="mb-2.5 flex flex-wrap gap-2">
-                    {attachments.files.map((file) => (
-                      <PendingChip key={file.id} file={file} disabled={sending} onRemove={() => attachments.remove(file.id)} />
-                    ))}
-                  </div>
-                ) : null}
-                <textarea
-                  ref={boxRef}
-                  rows={3}
-                  value={draft}
-                  readOnly={sending}
-                  onChange={(event) => setDraft(event.target.value)}
-                  onKeyDown={(event) => {
-                    if (event.key === "Enter" && !event.shiftKey) {
-                      event.preventDefault();
-                      send();
-                    }
-                  }}
-                  onPaste={(event) => {
-                    const files = Array.from(event.clipboardData.files);
-                    if (files.length) {
-                      event.preventDefault();
-                      attachments.add(files);
-                    }
-                  }}
-                  placeholder={dragging ? "Drop files to attach them" : "What would you like changed? Attach a screenshot, video or document if it helps..."}
-                  className="block w-full resize-none border-none bg-transparent px-1 text-[12.5px] text-[#1f2530] outline-none placeholder:text-[#9ca3af]"
-                />
-                <div className="mt-2 flex items-center justify-between gap-2 border-t border-[#f0f1f3] pt-2.5">
-                  <AttachmentPickers onPick={attachments.add} disabled={attachments.full || sending} />
-                  <button
-                    type="button"
-                    onClick={send}
-                    disabled={!canSend}
-                    aria-busy={sendLoading}
-                    className={`inline-flex h-9 min-w-34 shrink-0 items-center justify-center gap-1.5 rounded-lg bg-[#0b0c24] px-3.5 text-[12px] font-medium text-white ${
-                      sendLoading ? "cursor-wait" : "cursor-pointer hover:bg-[#1e2140] disabled:cursor-not-allowed disabled:opacity-40"
-                    }`}
-                  >
-                    {sendLoading ? (
-                      <>
-                        <Loader2 size={14} strokeWidth={2.25} className="animate-spin" />
-                        {sending && attachments.files.length && (progress ?? 0) < 100 ? `Uploading ${progress}%` : "Sending…"}
-                      </>
-                    ) : (
-                      <>
-                        <SendHorizontal size={14} strokeWidth={2} /> Send feedback
-                      </>
-                    )}
-                  </button>
-                </div>
-                {attachments.error ? <div className="mt-2 px-1 text-[11px] font-medium text-[#b91c1c]">{attachments.error}</div> : null}
-                <div className="mt-2 px-1 text-[11px] text-[#6b7280]">
-                  Sending feedback asks BayShore for changes and marks this piece <b className="font-semibold">In Revision</b>.
-                </div>
-              </div>
-            ) : null}
-          </Card>
-        </div>
-
-        <div className="flex flex-col gap-4.5 lg:sticky lg:top-4">
-          {/* Where the piece stands, and the client's decision */}
-          <Card badge={{ icon: CheckCircle2, color: CONTENT_STATUSES[status].color, background: CONTENT_STATUSES[status].background }} title="Your Review">
-            <div className="flex items-center justify-between gap-2">
-              <span className="text-[11.5px] text-[#6b7280]">Status</span>
-              <StatusBadge status={status} />
-            </div>
-            <p className="mt-3 text-[12px] leading-normal text-[#4b5563]">{STATUS_HELP[status]}</p>
-
-            {isApproved ? (
-              <div className="mt-4 flex items-center gap-2.5 rounded-lg bg-[#ecf8ef] px-3 py-2.5 text-[12px] text-[#15803d]">
-                <CheckCircle2 size={18} strokeWidth={2} className="shrink-0" />
-                <span>
-                  Approved{item.approvedAt ? ` on ${formatDate(item.approvedAt)}` : ""}
-                  {personNameOf(item.approvedBy) ? ` by ${personNameOf(item.approvedBy)}` : ""}
+              <div className="flex h-60 flex-col items-center justify-center text-center">
+                {/* A chat bubble with its three dots rising in turn, as if a message is on its way. */}
+                <span aria-hidden="true" className="mb-3 flex h-9 w-14 items-center justify-center gap-1.5 rounded-2xl rounded-bl-sm border-[1.5px] border-[#cfd4db]">
+                  {[0, 180, 360].map((delay) => (
+                    <span
+                      key={delay}
+                      className="h-1.5 w-1.5 animate-[typing-dot_1.3s_ease-in-out_infinite] rounded-full bg-[#9aa3af] motion-reduce:animate-none"
+                      style={{ animationDelay: `${delay}ms` }}
+                    />
+                  ))}
                 </span>
-              </div>
-            ) : confirming ? (
-              <div className="mt-4 rounded-lg border border-[#bfe3c9] bg-[#f4fbf6] p-3">
-                <div className="text-[12.5px] font-semibold text-[#0b0c24]">Approve “{item.title}”?</div>
-                <div className="mt-1 text-[11.5px] text-[#4b5563]">Once approved it&apos;s final — you won&apos;t be able to ask for changes.</div>
-                <div className="mt-3 flex gap-2">
-                  <button
-                    type="button"
-                    onClick={approve}
-                    disabled={busy}
-                    aria-busy={approveLoading}
-                    className="inline-flex h-9 flex-1 cursor-pointer items-center justify-center gap-1.5 rounded-lg bg-[#16a34a] text-[12px] font-medium text-white hover:bg-[#15803d] disabled:cursor-wait"
-                  >
-                    {approveLoading ? (
-                      <>
-                        <Loader2 size={14} strokeWidth={2.25} className="animate-spin" /> Approving…
-                      </>
-                    ) : (
-                      <>
-                        <Check size={14} strokeWidth={2.5} /> Yes, approve
-                      </>
-                    )}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setConfirming(false)}
-                    disabled={approveLoading}
-                    className="inline-flex h-9 cursor-pointer items-center rounded-lg border border-[#e2e5e9] bg-white px-3.5 text-[12px] font-medium text-[#1f2530] hover:bg-[#f3f4f6]"
-                  >
-                    Cancel
-                  </button>
-                </div>
-              </div>
-            ) : (
-              <div className="mt-4 flex flex-col gap-2">
-                <button
-                  type="button"
-                  onClick={() => setConfirming(true)}
-                  disabled={busy}
-                  className="inline-flex h-10 cursor-pointer items-center justify-center gap-2 rounded-lg bg-[#16a34a] text-[12.5px] font-medium text-white hover:bg-[#15803d] disabled:cursor-not-allowed"
-                >
-                  <Check size={15} strokeWidth={2.5} /> {status === "revision_requested" ? "Approve as it is" : "Approve"}
-                </button>
-                <button
-                  type="button"
-                  onClick={requestChanges}
-                  disabled={busy}
-                  className="inline-flex h-10 cursor-pointer items-center justify-center gap-2 rounded-lg border border-[#e2e5e9] bg-white text-[12.5px] font-medium text-[#1f2530] hover:bg-[#f3f4f6] disabled:cursor-not-allowed"
-                >
-                  <Pencil size={14} strokeWidth={2} /> {status === "revision_requested" ? "Add more feedback" : "Request Changes"}
-                </button>
+                <div className="text-[13px] font-semibold text-[#0b0c24]">No messages yet</div>
+                <div className="mt-1 text-[12px] text-[#6b7280]">Say hello to your BayShore team.</div>
               </div>
             )}
+
+            {/* The message box: a plain message. Asking for changes is a decision, made elsewhere on the page. */}
+            <div className="mt-3.5 border-t border-[#eef0f2] pt-3.5">
+              <MessageBox
+                value={messageText}
+                onChange={setMessageText}
+                files={messageFiles}
+                progress={messageProgress}
+                error={messageError}
+                onSend={sendMessage}
+                placeholder="Type a message"
+                label="Message"
+              />
+              <p className="mt-2 px-1 text-[11px] leading-normal text-[#6b7280]">
+                {awaitingTeam ? (
+                  "Your revision request is with BayShore."
+                ) : (
+                  <>
+                    Need changes? Use{" "}
+                    <b className="font-semibold">
+                      {status === "revision_requested" ? "Add more feedback" : isApproved ? "Request for Revision" : "Request a Revision"}
+                    </b>
+                    .
+                  </>
+                )}
+              </p>
+            </div>
           </Card>
 
           <Card badge={{ icon: Info, ...GRAY }} title="Details">
-            <DetailRow icon={type.icon} label="Type">
-              {type.label}
+            <DetailRow icon={Layers} label="Type">
+              {batchTypeLabelOf(item)}
             </DetailRow>
             <DetailRow icon={CalendarDays} label="Batch">
               {batch}
@@ -677,6 +755,9 @@ const ContentDetails = ({ item, related }: { item: ContentItem; related: Content
             </DetailRow>
             <DetailRow icon={User} label="Sent by">
               {personNameOf(item.createdBy) ?? "BayShore Communication"}
+            </DetailRow>
+            <DetailRow icon={RotateCcw} label="Revisions">
+              {revisions}
             </DetailRow>
             {isApproved ? (
               <DetailRow icon={Check} label="Approved">
@@ -713,6 +794,67 @@ const ContentDetails = ({ item, related }: { item: ContentItem; related: Content
           ) : null}
         </div>
       </div>
+
+      {dialog === "approve" ? (
+        <ReviewDialog
+          tone="approve"
+          heading="Approve this piece?"
+          title={target.title}
+          description="This tells BayShore the piece is ready to publish. You can still request a revision later if something needs changing."
+          noteLabel="Message"
+          notePlaceholder="Anything you'd like the team to know…"
+          confirmLabel="Yes, approve"
+          busyLabel="Approving…"
+          note={approveNote}
+          onNote={setApproveNote}
+          busy={approving}
+          error={dialogError}
+          onConfirm={approve}
+          onClose={() => setDialog(null)}
+        />
+      ) : null}
+
+      {dialog === "feedback" ? (
+        <ReviewDialog
+          tone="revision"
+          heading={target.status === "revision_requested" ? "Add more feedback" : "Request a revision?"}
+          title={target.title}
+          description={
+            target.status === "revision_requested"
+              ? `This piece is already in revision — this adds to your feedback${targetRevisions > 0 ? ` for revision ${targetRevisions}` : ""}.`
+              : target.status === "approved"
+                ? `This reopens the approved piece: it goes back to BayShore and starts revision ${targetRevisions + 1}. Tell the team what to change.`
+                : `This sends the piece back to BayShore and starts revision ${targetRevisions + 1}. Tell the team what to change.`
+          }
+          noteLabel="What should change?"
+          noteRequired
+          notePlaceholder="Describe the changes you'd like…"
+          hint={`Attach up to ${MAX_ATTACHMENTS} images, videos or documents — pick them, paste them, or drop them here.`}
+          wide
+          confirmLabel={target.status === "revision_requested" ? "Send feedback" : "Request revision"}
+          confirmDisabled={!feedbackText.trim() && feedbackFiles.files.length === 0}
+          busyLabel={feedbackFiles.files.length && (feedbackProgress ?? 0) < 100 ? `Uploading ${feedbackProgress ?? 0}%` : "Sending…"}
+          note={feedbackText}
+          onNote={setFeedbackText}
+          onFiles={feedbackFiles.add}
+          busy={sending}
+          error={dialogError}
+          onConfirm={sendFeedback}
+          onClose={() => setDialog(null)}
+        >
+          <div className="mt-2.5 flex flex-col gap-2">
+            {feedbackFiles.files.length > 0 ? (
+              <div className="flex flex-wrap gap-2">
+                {feedbackFiles.files.map((file) => (
+                  <PendingChip key={file.id} file={file} disabled={sending} onRemove={() => feedbackFiles.remove(file.id)} />
+                ))}
+              </div>
+            ) : null}
+            <AttachmentPickers onPick={feedbackFiles.add} disabled={feedbackFiles.full || sending} />
+            {feedbackFiles.error ? <div className="text-[11px] font-medium text-[#b91c1c]">{feedbackFiles.error}</div> : null}
+          </div>
+        </ReviewDialog>
+      ) : null}
     </div>
   );
 };

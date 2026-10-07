@@ -11,12 +11,12 @@ import {
   Globe,
   Link2,
   MapPin,
+  MapPinned,
   MousePointerClick,
   Navigation,
   Phone,
   Play,
   Share2,
-  Store,
   Users,
   type LucideIcon,
 } from "lucide-react";
@@ -642,7 +642,7 @@ const ReportDetails = ({
       {showGmb ? (
         <Card
           id="gmb"
-          badge={{ icon: Store, ...BLUE }}
+          badge={{ icon: MapPinned, ...BLUE }}
           title="GMB Performance"
           aside={
             <span className="inline-flex h-9 items-center gap-2 rounded-lg border border-[#e6e8eb] bg-white px-3.5 text-[12px] font-medium text-[#0b0c24] shadow-[0_1px_3px_rgba(15,23,42,0.06)]">

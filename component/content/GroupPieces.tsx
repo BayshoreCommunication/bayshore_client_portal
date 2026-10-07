@@ -2,9 +2,9 @@
 
 import { useSyncExternalStore, type ReactNode } from "react";
 import Link from "next/link";
-import { ChevronLeft, ChevronRight, Layers } from "lucide-react";
-import type { ContentPiece } from "@/app/actions/content";
-import { CONTENT_STATUSES, typeOf } from "./contentUi";
+import { Check, ChevronLeft, ChevronRight, Layers, RotateCcw } from "lucide-react";
+import type { ContentPiece, ContentStatus } from "@/app/actions/content";
+import { CONTENT_STATUSES, revisionNoteOf, typeOf } from "./contentUi";
 
 // ── Where a click on a piece is heading ──────────────────────────────────────
 
@@ -63,13 +63,31 @@ const StepLink = ({ piece, onGo, children }: { piece?: ContentPiece; onGo: (piec
     </span>
   );
 
+// The order the header counts the pieces in: what still needs the client first.
+const COUNTED: ContentStatus[] = ["pending_approval", "revision_requested", "approved"];
+
 // When BayShore sends several pieces together, this sits at the top of each one's page and
-// says so plainly: how many there are, which one is on screen, how many are approved — and
-// a tile per piece to open it. Not shown for a piece sent alone.
+// says so plainly: how many there are, which one is on screen, where they all stand — and a
+// tile per piece to open it, with how many revisions it has been through. Not shown for a
+// piece sent alone. `onApprove` and `onRevise` give every tile an Approve and a Revision
+// button — always there on the piece on screen, on hover for the others. An approved piece
+// keeps only Revision; one whose revision request BayShore hasn't answered yet, only Approve.
 //
 // Moving to another piece is remembered (see above), so that piece's loading screen can keep
 // this card where it is and put a skeleton only where the piece itself will appear.
-const GroupPieces = ({ pieces, currentId }: { pieces: ContentPiece[]; currentId: string }) => {
+const tileClass = "flex h-full items-center gap-3 rounded-xl border bg-white p-3 text-inherit no-underline transition-shadow";
+
+const GroupPieces = ({
+  pieces,
+  currentId,
+  onApprove,
+  onRevise,
+}: {
+  pieces: ContentPiece[];
+  currentId: string;
+  onApprove?: (piece: ContentPiece) => void;
+  onRevise?: (piece: ContentPiece) => void;
+}) => {
   const position = pieces.findIndex((piece) => piece._id === currentId);
   const approved = pieces.filter((piece) => piece.status === "approved").length;
   const go = (piece: ContentPiece) => rememberPieces(pieces, piece._id);
@@ -87,8 +105,24 @@ const GroupPieces = ({ pieces, currentId }: { pieces: ContentPiece[]; currentId:
           <div className="min-w-0">
             <div className="text-[16px] leading-tight font-bold text-[#0b0c24]">This content has {pieces.length} pieces</div>
             <div className="mt-1 text-[12px] text-[#4b5563]">
-              You&apos;re viewing <b className="font-semibold text-[#0b0c24]">piece {position + 1} of {pieces.length}</b>. Open each one to review it —
-              every piece is approved on its own.
+              You&apos;re viewing <b className="font-semibold text-[#0b0c24]">piece {position + 1} of {pieces.length}</b>. Each piece is decided on its
+              own — open it to approve it or request a revision.
+            </div>
+            <div className="mt-2.5 flex flex-wrap gap-1.5">
+              {COUNTED.map((status) => {
+                const state = CONTENT_STATUSES[status];
+                return (
+                  <span
+                    key={status}
+                    className="inline-flex items-center gap-1.5 rounded-md px-2 py-0.5 text-[10.5px] font-medium"
+                    style={{ background: state.background, color: state.color }}
+                  >
+                    <span className="h-1.5 w-1.5 rounded-full" style={{ background: state.dot }} />
+                    {state.label}
+                    <b className="font-bold">{pieces.filter((piece) => piece.status === status).length}</b>
+                  </span>
+                );
+              })}
             </div>
           </div>
         </div>
@@ -120,19 +154,10 @@ const GroupPieces = ({ pieces, currentId }: { pieces: ContentPiece[]; currentId:
         {pieces.map((piece, index) => {
           const kind = typeOf(piece);
           const state = CONTENT_STATUSES[piece.status];
+          const revisions = revisionNoteOf(piece);
           const current = piece._id === currentId;
-          return (
-            <Link
-              key={piece._id}
-              href={`/content/${piece._id}`}
-              onClick={() => go(piece)}
-              aria-current={current ? "page" : undefined}
-              className={`group relative flex items-center gap-3 rounded-xl border bg-white p-3 text-inherit no-underline transition-shadow ${
-                current
-                  ? "border-[#2f5fd8] shadow-[0_0_0_3px_rgba(47,95,216,0.14)]"
-                  : "border-[#e2e5e9] hover:border-[#9db3e6] hover:shadow-[0_4px_12px_rgba(15,23,42,0.08)]"
-              }`}
-            >
+          const face = (
+            <>
               {/* The piece's first image when it has one, otherwise its kind's icon — numbered either way. */}
               <span className="relative shrink-0">
                 {piece.thumbnail ? (
@@ -157,21 +182,82 @@ const GroupPieces = ({ pieces, currentId }: { pieces: ContentPiece[]; currentId:
                   Piece {index + 1} · {kind.label}
                 </span>
                 <span className="mt-0.5 block truncate text-[13px] font-semibold text-[#0b0c24]">{piece.title}</span>
-                <span
-                  className="mt-1.5 inline-flex items-center gap-1.5 rounded-md px-2 py-0.5 text-[10px] font-medium"
-                  style={{ background: state.background, color: state.color }}
-                >
-                  <span className="h-1.5 w-1.5 rounded-full" style={{ background: state.dot }} />
-                  {state.label}
+                <span className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1">
+                  <span
+                    className="inline-flex items-center gap-1.5 rounded-md px-2 py-0.5 text-[10px] font-medium"
+                    style={{ background: state.background, color: state.color }}
+                  >
+                    <span className="h-1.5 w-1.5 rounded-full" style={{ background: state.dot }} />
+                    {state.label}
+                  </span>
+                  {revisions ? (
+                    <span className="inline-flex items-center gap-1 text-[10px] font-medium text-[#6b7280]">
+                      <RotateCcw size={10} strokeWidth={2.25} /> {revisions}
+                    </span>
+                  ) : null}
                 </span>
               </span>
+            </>
+          );
 
-              {current ? (
-                <span className="shrink-0 rounded-md bg-[#2f5fd8] px-2 py-1 text-[10px] font-semibold text-white">Viewing</span>
-              ) : (
+          // The buttons for this piece: Approve while it isn't approved yet, and Revision — an
+          // approved piece can still be sent back — except while a revision request is waiting
+          // on BayShore: there is nothing to add until they answer.
+          const canApprove = Boolean(onApprove) && piece.status !== "approved";
+          const canRevise = Boolean(onRevise) && !(piece.status === "revision_requested" && piece.awaitingTeam);
+          const buttons =
+            canApprove || canRevise ? (
+              <>
+                {canApprove ? (
+                  <button
+                    type="button"
+                    onClick={() => onApprove?.(piece)}
+                    className="inline-flex cursor-pointer items-center gap-1 rounded-md border border-[#16a34a] bg-[#16a34a] px-2 py-1 text-[10px] font-semibold text-white hover:border-[#15803d] hover:bg-[#15803d]"
+                  >
+                    <Check size={11} strokeWidth={3} /> Approve
+                  </button>
+                ) : null}
+                {canRevise ? (
+                  <button
+                    type="button"
+                    onClick={() => onRevise?.(piece)}
+                    className="inline-flex cursor-pointer items-center gap-1 rounded-md border border-[#e2e5e9] bg-white px-2 py-1 text-[10px] font-semibold text-[#1f2530] hover:border-[#9aa3af] hover:bg-[#f3f4f6]"
+                  >
+                    <RotateCcw size={11} strokeWidth={2.5} /> {piece.status === "approved" ? "Request for Revision" : "Revision"}
+                  </button>
+                ) : null}
+              </>
+            ) : null;
+
+          // The piece on screen isn't a link to itself: its tile is the outlined one, and its
+          // buttons are always there.
+          if (current) {
+            return (
+              <div key={piece._id} aria-current="page" className={`${tileClass} border-[#2f5fd8] shadow-[0_0_0_3px_rgba(47,95,216,0.14)]`}>
+                {face}
+                {buttons ? <span className="flex shrink-0 items-center gap-1.5">{buttons}</span> : null}
+              </div>
+            );
+          }
+
+          // Any other piece opens on a click — and hovering it (or tabbing into it) brings its
+          // buttons up over the tile's right edge, so it can be decided without opening it.
+          return (
+            <div key={piece._id} className="group relative">
+              <Link
+                href={`/content/${piece._id}`}
+                onClick={() => go(piece)}
+                className={`${tileClass} border-[#e2e5e9] hover:border-[#9db3e6] hover:shadow-[0_4px_12px_rgba(15,23,42,0.08)]`}
+              >
+                {face}
                 <ChevronRight size={17} strokeWidth={2.25} className="shrink-0 text-[#9ca3af] group-hover:text-[#2f5fd8]" />
-              )}
-            </Link>
+              </Link>
+              {buttons ? (
+                <span className="absolute top-1/2 right-2.5 hidden -translate-y-1/2 items-center gap-1.5 rounded-lg bg-white py-1 pl-2 shadow-[-14px_0_10px_#fff] group-focus-within:flex group-hover:flex">
+                  {buttons}
+                </span>
+              ) : null}
+            </div>
           );
         })}
       </div>

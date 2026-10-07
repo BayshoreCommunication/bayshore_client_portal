@@ -63,7 +63,8 @@ const Sidebar = () => {
   const pathname = usePathname();
 
   return (
-    <div className="flex w-[230px] shrink-0 flex-col bg-[#0b1522] px-3.5 py-5 text-[#8b9baa] print:hidden">
+    // Stays put on the left while the page scrolls beside it; on a short screen it scrolls on its own.
+    <div className="sticky top-0 flex h-screen w-[230px] shrink-0 flex-col self-start overflow-y-auto bg-[#0b1522] px-3.5 py-5 text-[#8b9baa] print:hidden">
       <div className="px-2.5 pb-6">
         <div className="font-serif text-xl font-bold tracking-[0.5px] text-white">BayShore</div>
         <div className="mt-0.5 text-[9px] uppercase tracking-[1.5px] text-[#728496]">Client&apos;s Portal</div>

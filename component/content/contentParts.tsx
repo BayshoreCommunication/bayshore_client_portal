@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Download, ExternalLink, FileText, Film, FilePlus2, ImagePlus, Link2, Play, X, type LucideIcon } from "lucide-react";
 import type { ContentFile, ContentItem, ContentMedia, ContentStatus } from "@/app/actions/content";
-import { CONTENT_STATUSES, MAX_ATTACHMENTS, extensionOf, fileSize, filesOf, mediaOf, typeOf, uploadProblem } from "./contentUi";
+import { CONTENT_STATUSES, MAX_ATTACHMENTS, extensionOf, fileSize, formatDate, mediaOf, typeOf, uploadProblem, versionsOf } from "./contentUi";
 
 // Building blocks for the client's content details page.
 
@@ -23,10 +23,22 @@ export const IconBadge = ({ badge, size = "md" }: { badge: Badge; size?: "sm" | 
   );
 };
 
-// A section: icon + title header, then the body.
-export const Card = ({ badge, title, aside, children }: { badge: Badge; title: string; aside?: ReactNode; children: ReactNode }) => (
+// A section: icon + title header, then the body. `divided` draws a line under the header.
+export const Card = ({
+  badge,
+  title,
+  aside,
+  divided = false,
+  children,
+}: {
+  badge: Badge;
+  title: string;
+  aside?: ReactNode;
+  divided?: boolean;
+  children: ReactNode;
+}) => (
   <section className={cardClass}>
-    <div className="flex items-center justify-between gap-3 px-5 pt-4.5">
+    <div className={`flex items-center justify-between gap-3 px-5 pt-4.5 ${divided ? "border-b border-[#eef0f2] pb-4" : ""}`}>
       <div className="flex items-center gap-3">
         <IconBadge badge={badge} />
         <h2 className="text-[13px] font-semibold text-[#0b0c24] uppercase">{title}</h2>
@@ -66,25 +78,30 @@ const isPdf = (file: ContentFile) => file.mimeType === "application/pdf" || /\.p
 
 // One file, as large as it reads well: the image, a playable video, the PDF — or a
 // download card for documents the browser can't show.
+// The tinted surface a preview sits on, so the piece itself stands apart from the white card around it.
+const stageClass = "rounded-xl border border-[#d6e0f1] bg-[#eaf0fa]";
+
 const FileView = ({ file }: { file: ContentFile }) => {
   if (file.media === "image") {
     // eslint-disable-next-line @next/next/no-img-element
-    return <img src={file.url} alt={file.name} className="block max-h-130 w-full rounded-xl bg-[#f3f4f6] object-contain" />;
+    return <img src={file.url} alt={file.name} className="block max-h-[60vh] w-full rounded-lg object-contain" />;
   }
   if (file.media === "video") {
-    return <video src={file.url} controls className="block max-h-130 w-full rounded-xl bg-black" />;
+    return <video src={file.url} controls className="block max-h-[60vh] w-full rounded-lg bg-black" />;
   }
   if (isPdf(file)) {
-    return <iframe src={`${file.url}#view=FitH`} title={file.name} className="block h-130 w-full rounded-xl border border-[#eceef1] bg-white" />;
+    return <iframe src={`${file.url}#view=FitH`} title={file.name} className="block h-[60vh] min-h-105 w-full rounded-lg border border-[#d6e0f1] bg-white" />;
   }
+  // A document the browser can't show in place (Word, text…): a panel the size of a preview,
+  // with the file front and centre.
   return (
-    <div className="flex flex-wrap items-center gap-4 rounded-xl border border-[#eceef1] bg-[#fafbfc] p-5">
-      <span className="flex h-14 w-14 shrink-0 items-center justify-center rounded-xl bg-[#f8e4c6] text-[#d97706]">
-        <FileText size={26} strokeWidth={1.75} />
+    <div className="flex min-h-70 flex-col items-center justify-center gap-4 p-6 text-center">
+      <span className="flex h-16 w-16 items-center justify-center rounded-2xl bg-white text-[#d97706] shadow-[0_1px_3px_rgba(15,23,42,0.08)]">
+        <FileText size={30} strokeWidth={1.6} />
       </span>
-      <div className="min-w-0 flex-1">
-        <div className="truncate text-[14px] font-semibold text-[#0b0c24]">{file.name}</div>
-        <div className="mt-0.5 text-[11.5px] text-[#6b7280]">
+      <div className="max-w-full">
+        <div className="text-[16px] font-semibold wrap-anywhere text-[#0b0c24]">{file.name}</div>
+        <div className="mt-1 text-[12px] text-[#6b7280]">
           {extensionOf(file.name)}
           {file.size ? ` · ${fileSize(file.size)}` : ""} — download it to read
         </div>
@@ -94,23 +111,116 @@ const FileView = ({ file }: { file: ContentFile }) => {
         download={file.name}
         target="_blank"
         rel="noopener noreferrer"
-        className="inline-flex h-9 items-center gap-2 rounded-lg bg-[#0b0c24] px-4 text-[12px] font-medium text-white no-underline hover:bg-[#1e2140]"
+        className="inline-flex h-10 items-center gap-2 rounded-lg bg-[#0b0c24] px-5 text-[12.5px] font-medium text-white no-underline hover:bg-[#1e2140]"
       >
-        <Download size={14} strokeWidth={2} /> Download
+        <Download size={15} strokeWidth={2} /> Download
       </a>
     </div>
   );
 };
 
-// A small thumbnail to switch between a piece's files.
-const Thumb = ({ file, active, onClick }: { file: ContentFile; active: boolean; onClick: () => void }) => (
+// A pasted link that can be shown in place: a YouTube or Vimeo video, or a Google Drive /
+// Docs file shared for viewing. Anything else returns null — most sites refuse to be framed.
+const embedOf = (link: string): { src: string; tall: boolean } | null => {
+  let url: URL;
+  try {
+    url = new URL(link);
+  } catch {
+    return null;
+  }
+  const host = url.hostname.replace(/^www\./, "");
+  const parts = url.pathname.split("/").filter(Boolean);
+
+  if (host === "youtu.be" && parts[0]) return { src: `https://www.youtube.com/embed/${parts[0]}`, tall: false };
+  if (host === "youtube.com" || host === "m.youtube.com") {
+    const id = url.searchParams.get("v") ?? (["shorts", "embed", "live"].includes(parts[0]) ? parts[1] : null);
+    return id ? { src: `https://www.youtube.com/embed/${id}`, tall: false } : null;
+  }
+  if (host === "vimeo.com" && /^\d+$/.test(parts[0] ?? "")) return { src: `https://player.vimeo.com/video/${parts[0]}`, tall: false };
+  if (host === "drive.google.com" && parts[0] === "file" && parts[1] === "d" && parts[2]) {
+    return { src: `https://drive.google.com/file/d/${parts[2]}/preview`, tall: true };
+  }
+  if (host === "docs.google.com" && ["document", "presentation", "spreadsheets"].includes(parts[0]) && parts[1] === "d" && parts[2]) {
+    return { src: `https://docs.google.com/${parts[0]}/d/${parts[2]}/preview`, tall: true };
+  }
+  return null;
+};
+
+// The link the team pasted. Shown in place when it can be; otherwise a panel to open it —
+// the size of a preview when the link is all there is (`large`), a row under the files when not.
+const LinkView = ({ link, type, large }: { link: string; type: { label: string; color: string; background: string }; large: boolean }) => {
+  const embed = embedOf(link);
+  const open = (
+    <a
+      href={link}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="flex items-center gap-3 rounded-xl border border-[#eceef1] bg-[#fafbfc] p-4 text-inherit no-underline hover:bg-[#f3f4f6]"
+    >
+      <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg" style={{ background: type.background, color: type.color }}>
+        <Link2 size={18} strokeWidth={2} />
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="block text-[13px] font-semibold text-[#0b0c24]">Open the {type.label.toLowerCase()}</span>
+        <span className="block truncate text-[11.5px] text-[#6b7280]">{link}</span>
+      </span>
+      <ExternalLink size={15} strokeWidth={2} className="shrink-0 text-[#4b5260]" />
+    </a>
+  );
+
+  if (embed) {
+    return (
+      <>
+        <iframe
+          src={embed.src}
+          title={`${type.label} preview`}
+          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; fullscreen"
+          allowFullScreen
+          className={`block w-full rounded-xl border border-[#d6e0f1] ${embed.tall ? "h-[60vh] min-h-105 bg-white" : "aspect-video bg-black"}`}
+        />
+        {open}
+      </>
+    );
+  }
+  if (!large) return open;
+
+  let host = link;
+  try {
+    host = new URL(link).hostname.replace(/^www\./, "");
+  } catch {
+    // Not a full URL — show it as it was pasted.
+  }
+  return (
+    <a
+      href={link}
+      target="_blank"
+      rel="noopener noreferrer"
+      className={`${stageClass} group flex min-h-70 flex-col items-center justify-center gap-4 p-6 text-center text-inherit no-underline hover:border-[#b9c9e8]`}
+    >
+      <span className="flex h-16 w-16 items-center justify-center rounded-2xl bg-white shadow-[0_1px_3px_rgba(15,23,42,0.08)]" style={{ color: type.color }}>
+        <Link2 size={28} strokeWidth={1.75} />
+      </span>
+      <span className="max-w-full">
+        <span className="block text-[16px] font-semibold text-[#0b0c24]">{host}</span>
+        <span className="mt-1 block text-[12px] wrap-anywhere text-[#6b7280]">{link}</span>
+      </span>
+      <span className="inline-flex h-10 items-center gap-2 rounded-lg bg-[#0b0c24] px-5 text-[12.5px] font-medium text-white group-hover:bg-[#1e2140]">
+        Open the {type.label.toLowerCase()} <ExternalLink size={15} strokeWidth={2} />
+      </span>
+    </a>
+  );
+};
+
+// A small thumbnail to switch between a piece's files. One the piece no longer uses —
+// replaced during a revision — is washed in yellow and says so.
+const Thumb = ({ file, active, previous, onClick }: { file: ContentFile; active: boolean; previous?: boolean; onClick: () => void }) => (
   <button
     type="button"
     onClick={onClick}
-    aria-label={`Show ${file.name}`}
+    aria-label={`Show ${previous ? "the previous " : ""}${file.name}`}
     aria-current={active}
     className={`relative h-16 w-16 shrink-0 cursor-pointer overflow-hidden rounded-lg border-2 bg-[#f3f4f6] ${
-      active ? "border-[#0b0c24]" : "border-transparent opacity-75 hover:opacity-100"
+      active ? (previous ? "border-[#ca8a04]" : "border-[#0b0c24]") : `${previous ? "border-[#eab308]" : "border-transparent"} opacity-75 hover:opacity-100`
     }`}
   >
     {file.media === "image" ? (
@@ -129,52 +239,93 @@ const Thumb = ({ file, active, onClick }: { file: ContentFile; active: boolean; 
         <span className="text-[8.5px] font-bold">{extensionOf(file.name)}</span>
       </span>
     )}
+    {previous ? (
+      <>
+        <span aria-hidden="true" className="pointer-events-none absolute inset-0 bg-[#facc15]/30" />
+        <span className="absolute inset-x-0 bottom-0 bg-[#facc15] py-px text-center text-[8px] font-bold tracking-[0.3px] text-[#422006]">PREVIOUS</span>
+      </>
+    ) : null}
   </button>
 );
 
-// The piece itself: every file (one large, the rest to switch to), and the link if
-// the team pasted one.
+const stripDivider = <span aria-hidden="true" className="mx-1 h-10 w-px shrink-0 bg-[#e2e5e9]" />;
+
+// The piece itself, large: every file (one shown big, the rest to switch to), and the link
+// if the team pasted one — played or shown in place when it can be. The newest files come
+// first, and it opens on them; whatever the piece had before follows, in yellow, to compare
+// with — files still in it from an earlier version, then the ones BayShore replaced during a
+// revision.
 export const Preview = ({ item }: { item: ContentItem }) => {
-  const files = filesOf(item);
+  const { latest, earlier } = versionsOf(item);
+  const previous = item.previousFiles ?? [];
+  const all = [...latest, ...earlier, ...previous];
   const [shown, setShown] = useState(0);
   const type = typeOf(item);
-  const current = files[Math.min(shown, files.length - 1)];
+  const index = Math.min(shown, all.length - 1);
+  const current = all[index];
+  const before = latest.length + earlier.length;
+  // From an earlier version, but still in the piece.
+  const kept = index >= latest.length && index < before ? earlier[index - latest.length] : undefined;
+  // Replaced during a revision.
+  const old = index >= before ? previous[index - before] : undefined;
 
   return (
     <div className="flex flex-col gap-3">
-      {current ? <FileView file={current} /> : null}
+      {current ? (
+        <div className={kept || old ? "rounded-xl border-2 border-[#eab308] bg-[#fef9c3] p-2.5" : `${stageClass} p-2.5`}>
+          {/* Which version is on show — said only when there is more than one to tell apart. */}
+          {earlier.length + previous.length > 0 ? (
+            <div className="mb-2 flex flex-wrap items-center gap-2 px-0.5 text-[11px]">
+              {kept || old ? (
+                <>
+                  <span className="rounded bg-[#facc15] px-1.5 py-0.5 text-[10px] font-bold text-[#422006]">PREVIOUS VERSION</span>
+                  <span className="text-[#713f12]">
+                    {old ? (
+                      <>
+                        Replaced {formatDate(old.replacedAt)}
+                        {old.revision ? ` · revision ${old.revision}` : ""}
+                      </>
+                    ) : (
+                      <>
+                        Still part of this piece
+                        {kept?.uploadedAt ? ` · added ${formatDate(kept.uploadedAt)}` : ""}
+                      </>
+                    )}
+                  </span>
+                </>
+              ) : (
+                <span className="rounded bg-[#16a34a] px-1.5 py-0.5 text-[10px] font-bold text-white">LATEST VERSION</span>
+              )}
+            </div>
+          ) : null}
+          {/* Keyed by file, so switching shows the new one at once instead of the last one under a new label. */}
+          <FileView key={current.url} file={current} />
+        </div>
+      ) : null}
 
-      {files.length > 1 ? (
+      {all.length > 1 ? (
         <div className="flex items-center gap-2 overflow-x-auto pb-1">
-          {files.map((file, index) => (
-            <Thumb key={file.url} file={file} active={file === current} onClick={() => setShown(index)} />
+          {latest.map((file, at) => (
+            <Thumb key={file.url} file={file} active={at === index} onClick={() => setShown(at)} />
+          ))}
+          {earlier.length > 0 ? stripDivider : null}
+          {earlier.map((file, at) => (
+            <Thumb key={file.url} file={file} previous active={latest.length + at === index} onClick={() => setShown(latest.length + at)} />
+          ))}
+          {previous.length > 0 && before > 0 ? stripDivider : null}
+          {previous.map((file, at) => (
+            <Thumb key={`previous-${file.url}`} file={file} previous active={before + at === index} onClick={() => setShown(before + at)} />
           ))}
           <span className="ml-1 shrink-0 text-[11px] text-[#6b7280]">
-            {files.indexOf(current) + 1} of {files.length}
+            {index + 1} of {all.length}
           </span>
         </div>
       ) : null}
 
-      {item.link ? (
-        <a
-          href={item.link}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="flex items-center gap-3 rounded-xl border border-[#eceef1] bg-[#fafbfc] p-4 text-inherit no-underline hover:bg-[#f3f4f6]"
-        >
-          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg" style={{ background: type.background, color: type.color }}>
-            <Link2 size={18} strokeWidth={2} />
-          </span>
-          <span className="min-w-0 flex-1">
-            <span className="block text-[13px] font-semibold text-[#0b0c24]">Open the {type.label.toLowerCase()}</span>
-            <span className="block truncate text-[11.5px] text-[#6b7280]">{item.link}</span>
-          </span>
-          <ExternalLink size={15} strokeWidth={2} className="shrink-0 text-[#4b5260]" />
-        </a>
-      ) : null}
+      {item.link ? <LinkView link={item.link} type={type} large={!current} /> : null}
 
       {!current && !item.link ? (
-        <div className="flex aspect-video w-full flex-col items-center justify-center gap-3 rounded-xl bg-[linear-gradient(145deg,#dfe6f4,#eef1f6)]" style={{ color: type.color }}>
+        <div className={`${stageClass} flex min-h-70 w-full flex-col items-center justify-center gap-3`} style={{ color: type.color }}>
           <span className="flex h-14 w-14 items-center justify-center rounded-2xl bg-white/70">
             <type.icon size={26} strokeWidth={1.75} />
           </span>

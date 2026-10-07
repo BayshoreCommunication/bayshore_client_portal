@@ -10,10 +10,14 @@ export const pendingItems: { kind: PendingKind; title: string; sub: string; stat
   { kind: "blog", title: "Blog — Dog Bite Claims Explained", sub: "Submitted Sep 12", status: "waiting" },
   { kind: "reel", title: "Reel — “Know Your Rights”", sub: "Submitted Sep 13", status: "waiting" },
   { kind: "post", title: "Static Post — Hurricane Prep", sub: "Approved Sep 3", status: "approved" },
+  { kind: "post", title: "Static Post — Client Testimonial", sub: "Submitted Sep 14", status: "waiting" },
+  { kind: "blog", title: "Blog — What to Do After a Slip and Fall", sub: "Submitted Sep 15", status: "waiting" },
 ];
 
 export const upcomingMeetings = [
   { month: "Sep", day: "18", title: "Monthly Strategy Call", sub: "2:00 PM · Video call" },
   { month: "Sep", day: "25", title: "Q3 Campaign Review", sub: "10:30 AM · Video call" },
   { month: "Sep", day: "28", title: "Monthly Strategy Call", sub: "2:00 PM · Video call" },
+  { month: "Oct", day: "2", title: "Content Planning Session", sub: "11:00 AM · Video call" },
+  { month: "Oct", day: "9", title: "SEO Progress Review", sub: "3:30 PM · Video call" },
 ];

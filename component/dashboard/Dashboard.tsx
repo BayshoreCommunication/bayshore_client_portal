@@ -53,7 +53,7 @@ const SideCard = ({
   children: ReactNode;
 }) => (
   <div className="overflow-hidden rounded-2xl border border-[#e6e8eb] bg-white shadow-[0_2px_6px_rgba(15,23,42,0.05)]">
-    <div className="flex items-center gap-3 px-4.5 pt-4.5 pb-3.5">
+    <div className="flex items-center gap-3 border-b border-[#eef0f2] px-4.5 pt-4.5 pb-3.5">
       <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl" style={{ background: iconBackground, color: iconColor }}>
         <Icon size={19} strokeWidth={1.9} />
       </span>
@@ -67,7 +67,7 @@ const SideCard = ({
         </span>
       ) : null}
     </div>
-    <div className="flex flex-col gap-1 px-2.5 pb-2">{children}</div>
+    <div className="flex flex-col gap-1 px-2.5 pt-2 pb-2">{children}</div>
     <Link
       href={footer.href}
       className="flex items-center justify-center gap-1.5 border-t border-[#eef0f2] py-3.5 text-[12px] font-bold tracking-[0.4px] text-[#0b0c24] uppercase no-underline hover:bg-[#f9fafb]"
@@ -368,7 +368,9 @@ const MetricTrend = ({ change, note }: { change: { percent: number; direction: T
 };
 
 const Dashboard = ({ name, model, error }: { name: string; model: DashboardModel | null; error?: string }) => {
-  const needDecision = pendingItems.filter((item) => item.status !== "approved").length;
+  // Everything not approved yet: waiting for approval, or sent back for a revision.
+  const awaitingApproval = pendingItems.filter((item) => item.status !== "approved");
+  const needDecision = awaitingApproval.length;
   return (
     <>
       <div className={`${poppins.className} mt-1.5 flex items-start justify-between`}>
@@ -435,12 +437,12 @@ const Dashboard = ({ name, model, error }: { name: string; model: DashboardModel
             icon={Clock}
             iconColor="#d97706"
             iconBackground="#f8e4c6"
-            title="Pending Content Approval"
+            title="Content for approval"
             sub={`${needDecision} items need a decision`}
             count={needDecision}
             footer={{ href: "/content", label: `Review All (${needDecision})` }}
           >
-            {pendingItems.map((item) => {
+            {awaitingApproval.map((item) => {
               const tile = PENDING_ICONS[item.kind];
               const pill = PENDING_PILLS[item.status];
               return (

@@ -28,7 +28,9 @@ const MainLayout = async ({ children }: { children: React.ReactNode }) => {
     <SessionUserProvider user={{ name, initials: initialsFromName(name) }}>
       <div className="flex min-h-screen">
         <Sidebar />
-        <div className="flex flex-1 flex-col overflow-y-auto print:overflow-visible">
+        {/* No overflow here on purpose: the window is what scrolls, and an overflow container that
+            never scrolls would stop `sticky` from working on every page inside it. */}
+        <div className="flex min-w-0 flex-1 flex-col">
           <Topbar />
           <div className="flex flex-col gap-4.5 px-9 pt-6 pb-10 print:gap-0 print:p-0">{children}</div>
         </div>
