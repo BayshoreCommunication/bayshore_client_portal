@@ -14,11 +14,20 @@ export interface ReportBlog {
   url?: string;
 }
 
+// One of the period's videos, with its own figures.
+export interface ReportVideo {
+  title: string;
+  views?: number;
+  impressions?: number;
+}
+
 export interface ReportSocial {
   facebookReach?: number;
   instagramReach?: number;
   twitterReach?: number;
   linkedinReach?: number;
+  videos?: ReportVideo[];
+  // An older report's single best-performing video — `videos` took its place.
   reel?: { title?: string; views?: number };
 }
 

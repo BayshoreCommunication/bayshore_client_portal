@@ -355,8 +355,10 @@ const ReportDetails = ({
       badge: { icon: LinkedinIcon, color: "#0a66c2", background: "#d8e6f5" },
     },
   ]);
+  const videos = social?.videos ?? [];
+  // An older report's single best-performing video — shown when the report has no list of videos.
   const reel = social?.reel;
-  const hasReel = Boolean(reel?.title) || typeof reel?.views === "number";
+  const hasReel = videos.length === 0 && (Boolean(reel?.title) || typeof reel?.views === "number");
 
   const websiteMetrics = present([
     { label: "Backlinks", value: website?.backlinks, previous: previous?.website?.backlinks, badge: { icon: Link2, ...BLUE } },
@@ -435,7 +437,7 @@ const ReportDetails = ({
   const locations = gmb?.locations ?? [];
   const previousLocation = (locationName: string) => previous?.gmb?.locations?.find((location) => location.name === locationName);
 
-  const showSocial = socialMetrics.length > 0 || hasReel;
+  const showSocial = socialMetrics.length > 0 || videos.length > 0 || hasReel;
   const showBlogs = report.blogs.length > 0;
   const showWebsite = websiteMetrics.length > 0 || showWebsiteChart;
   const showGmb = gmbMetrics.length > 0 || locations.length > 0;
@@ -521,6 +523,27 @@ const ReportDetails = ({
       {showSocial ? (
         <Card id="social" badge={{ icon: Share2, ...BLUE }} title="Social Media Content Performance">
           {socialMetrics.length > 0 ? <StatGrid metrics={socialMetrics} /> : null}
+
+          {videos.length > 0 ? (
+            <div className="flex flex-col gap-2">
+              {videos.map((video, index) => (
+                <div className={`${tileClass} flex items-center gap-3 px-4 py-3`} key={`${video.title}-${index}`}>
+                  <IconBadge badge={{ icon: Play, color: "#dc2626", background: "#f4d7db" }} size="sm" />
+                  <div className="min-w-0 flex-1 truncate text-[12px] font-semibold text-[#1f2530]">{video.title}</div>
+                  {typeof video.views === "number" ? (
+                    <div className="shrink-0 text-right text-[11px] text-[#6b7280]">
+                      Views <b className="font-semibold text-[#1f2530]">{video.views.toLocaleString("en-US")}</b>
+                    </div>
+                  ) : null}
+                  {typeof video.impressions === "number" ? (
+                    <div className="shrink-0 text-right text-[11px] text-[#6b7280]">
+                      Impressions <b className="font-semibold text-[#1f2530]">{video.impressions.toLocaleString("en-US")}</b>
+                    </div>
+                  ) : null}
+                </div>
+              ))}
+            </div>
+          ) : null}
 
           {hasReel ? (
             <div className={`${tileClass} flex items-center gap-3 px-4 py-3`}>
