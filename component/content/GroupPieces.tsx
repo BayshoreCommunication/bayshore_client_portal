@@ -12,7 +12,10 @@ import { CONTENT_STATUSES, revisionNoteOf, typeOf } from "./contentUi";
 // loading screen knows nothing about the group. So the card says where it is going just
 // before it goes: the loading screen reads that and keeps the card on screen, with the
 // piece being opened already marked. The piece's page forgets it once it has arrived.
-type Heading = { pieces: ContentPiece[]; targetId: string };
+//
+// A page that moves on by itself — after a piece is approved, to the next one waiting — can
+// send a `notice` along, for the page it lands on to open with.
+type Heading = { pieces: ContentPiece[]; targetId: string; notice?: string };
 
 let heading: Heading | null = null;
 const listeners = new Set<() => void>();
@@ -24,9 +27,19 @@ const subscribe = (listener: () => void) => {
 };
 const tell = () => listeners.forEach((listener) => listener());
 
-const rememberPieces = (pieces: ContentPiece[], targetId: string) => {
-  heading = { pieces, targetId };
+export const rememberPieces = (pieces: ContentPiece[], targetId: string, notice?: string) => {
+  heading = { pieces, targetId, notice };
   tell();
+};
+
+// What the page that was just left wanted said on this piece's page, if it sent anything.
+export const arrivalNotice = (pieceId: string) => (heading?.targetId === pieceId ? (heading.notice ?? null) : null);
+
+// The next piece of a group still waiting for the client's decision, after the one named —
+// going round to the start, so one that was skipped earlier isn't missed.
+export const nextWaiting = (pieces: ContentPiece[], afterId: string) => {
+  const at = pieces.findIndex((piece) => piece._id === afterId);
+  return [...pieces.slice(at + 1), ...pieces.slice(0, Math.max(0, at))].find((piece) => piece.status === "pending_approval");
 };
 
 export const forgetPieces = () => {

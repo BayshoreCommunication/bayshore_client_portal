@@ -61,7 +61,7 @@ import {
 import ReviewDialog from "./ReviewDialog";
 import RevisionHistory, { REVIEW_ANCHOR } from "./RevisionHistory";
 import DateTime from "./DateTime";
-import GroupPieces, { forgetPieces } from "./GroupPieces";
+import GroupPieces, { arrivalNotice, forgetPieces, nextWaiting, rememberPieces } from "./GroupPieces";
 import MessageBox from "./MessageBox";
 
 // Sends feedback to the upload route, reporting progress (0–100) as files go up.
@@ -330,7 +330,14 @@ const ContentDetails = ({ item, related }: { item: ContentItem; related: Content
   const [dialogError, setDialogError] = useState<string | null>(null);
   const [approving, setApproving] = useState(false);
   const [sending, setSending] = useState(false);
-  const [notice, setNotice] = useState<string | null>(null);
+  // Reached by approving the piece before it? Then the page opens saying so — whether it is
+  // a fresh page or this one handed the next piece.
+  const [notice, setNotice] = useState<string | null>(() => arrivalNotice(item._id));
+  const [noticeFor, setNoticeFor] = useState(item._id);
+  if (noticeFor !== item._id) {
+    setNoticeFor(item._id);
+    setNotice(arrivalNotice(item._id));
+  }
 
   // The message box under the thread: plain messages, which never move the piece.
   const [messageText, setMessageText] = useState("");
@@ -400,6 +407,23 @@ const ContentDetails = ({ item, related }: { item: ContentItem; related: Content
     }
     setDialog(null);
     setApproveNote("");
+
+    // With a piece approved, move straight on to the next of its group still waiting for a
+    // decision, so several can be gone through one after another — whether it was the piece
+    // on screen or one approved from the group's card. Only a piece on screen that is itself
+    // still waiting keeps the page: it is the next one to decide.
+    const next = nextWaiting(pieces, target._id);
+    const waitingHere = targetElsewhere && status === "pending_approval";
+    if (next && !waitingHere && next._id !== item._id) {
+      rememberPieces(
+        pieces.map((piece) => (piece._id === target._id ? { ...piece, status: "approved" as const } : piece)),
+        next._id,
+        `“${target.title}” approved — thank you! Here is the next piece waiting for you.`,
+      );
+      startTransition(() => router.push(`/content/${next._id}`));
+      return;
+    }
+
     setNotice(targetElsewhere ? `“${target.title}” approved — thank you! BayShore has been notified.` : "Approved — thank you! BayShore has been notified.");
     refresh();
   };
