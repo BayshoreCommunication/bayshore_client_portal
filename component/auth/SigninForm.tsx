@@ -1,10 +1,13 @@
 "use client";
 
 import { useActionState, useState } from "react";
+import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { Mail, Lock, Eye, EyeOff } from "lucide-react";
+import { ArrowLeft, Mail, Lock, Eye, EyeOff } from "lucide-react";
 import { signInAction, type SignInState } from "@/app/actions/auth";
 
+// The sign-in form. The way here is "Sign in" on the front page (/), or being sent from a
+// page inside the portal that needs an account; "Back" returns to the front page's choice.
 const SigninForm = () => {
   const searchParams = useSearchParams();
   const callbackUrl = searchParams.get("callbackUrl") ?? "/dashboard";
@@ -13,6 +16,10 @@ const SigninForm = () => {
 
   return (
     <div className="w-full max-w-115 rounded-[14px] border border-[#e5e9e7] bg-white px-12 py-11 shadow-[0_1px_3px_rgba(13,30,44,0.06),0_10px_30px_rgba(13,30,44,0.06)]">
+      <Link href="/" className="mb-5 inline-flex items-center gap-1.5 text-[12px] font-semibold text-[#657787] no-underline hover:text-[#17242f]">
+        <ArrowLeft size={13} strokeWidth={2.25} /> Back
+      </Link>
+
       <div className="font-serif text-2xl font-bold text-[#17242f]">Welcome back</div>
       <div className="mt-1 mb-7 text-[13px] text-[#657787]">Sign in to your BayShore client account.</div>
 
@@ -77,6 +84,13 @@ const SigninForm = () => {
           {pending ? "Signing in…" : "Sign In"}
         </button>
       </form>
+
+      <div className="mt-5 text-center text-[12.5px] text-[#657787]">
+        New to BayShore?{" "}
+        <Link href="/onboarding" className="font-semibold text-[#17242f] underline underline-offset-[3px] hover:text-[#d99136]">
+          Start onboarding
+        </Link>
+      </div>
     </div>
   );
 };

@@ -5,6 +5,14 @@ import { BACKEND_API_URL } from "@/lib/backend";
 
 const AUTH_ROUTES = ["/sign-in", "/forgot-password"];
 
+// Open to anyone, signed in or not: the onboarding form a new client starts from the
+// front page.
+const PUBLIC_ROUTES = ["/onboarding"];
+
+// The front page: the choice between onboarding and signing in, for someone not signed in.
+// A signed-in client has no use for it and goes to their dashboard — as from a sign-in page.
+const HOME = "/";
+
 // This portal is for clients only. Any session whose role is something else
 // (staff account, or a client whose role was changed) is treated as signed out.
 const CLIENT_ROLE = "client";
@@ -122,7 +130,8 @@ export default async function proxy(req: NextRequest) {
   const token = (await getToken({ req, secret, cookieName })) as SessionToken | null;
   const { pathname } = req.nextUrl;
   const isServerAction = req.headers.has("next-action");
-  const isAuthRoute = AUTH_ROUTES.some((route) => pathname.startsWith(route));
+  const isAuthRoute = pathname === HOME || AUTH_ROUTES.some((route) => pathname.startsWith(route));
+  const isPublicRoute = PUBLIC_ROUTES.some((route) => pathname.startsWith(route));
 
   let isLoggedIn = !!token && token.role === CLIENT_ROLE;
   let refreshedCookieValue: string | null = null;
@@ -172,7 +181,7 @@ export default async function proxy(req: NextRequest) {
     // redirect page — redirecting it makes the browser fail with "An unexpected response was
     // received from the server" and leaves the person stuck. So let it through: every action
     // checks its own token with the backend, and signing out clears the cookie itself.
-    if (isAuthRoute || isServerAction) {
+    if (isAuthRoute || isPublicRoute || isServerAction) {
       const response = NextResponse.next();
       if (token) response.cookies.delete(cookieName);
       return response;

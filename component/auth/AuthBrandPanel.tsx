@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { LayoutDashboard, FileText, CheckCircle2, Calendar } from "lucide-react";
 
 const FEATURES = [
@@ -10,7 +11,9 @@ const FEATURES = [
 const AuthBrandPanel = () => {
   return (
     <div className="flex max-w-115 flex-[1_1_420px] flex-col justify-center bg-[#0b1522] px-12 py-14 max-[860px]:hidden">
-      <div className="font-serif text-[30px] font-bold text-white">BayShore</div>
+      <Link href="/" className="self-start font-serif text-[30px] font-bold text-white no-underline">
+        BayShore
+      </Link>
       <div className="mt-2.5 max-w-80 text-sm leading-[1.6] text-[#9cb0c3]">
         Your client portal — reports, approvals, leads and services from your BayShore team, all in one
         place.
