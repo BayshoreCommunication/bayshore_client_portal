@@ -1,10 +1,12 @@
 "use client";
 
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type DragEvent, type ReactNode } from "react";
+import Image from "next/image";
 import Link from "next/link";
 import { AnimatePresence, MotionConfig, motion } from "framer-motion";
-import { Camera, Check, ChevronDown, CircleAlert, Globe, Info, ListChecks, Loader2, Lock, Mail, MapPin, Palette, Plus, Server, User, Users, X, type LucideIcon } from "lucide-react";
-import { deleteOnboardingAction, startOnboardingAction, updateOnboardingAction, type Onboarding } from "@/app/actions/onboarding";
+import { Camera, Check, ChevronDown, CircleAlert, Copy, ExternalLink, Globe, Info, LifeBuoy, Loader2, Lock, Mail, MapPin, Palette, Plus, Server, Upload, User, Users, X, type LucideIcon } from "lucide-react";
+import { deleteOnboardingAction, startOnboardingAction, updateMyOnboardingAction, updateOnboardingAction, type Onboarding, type OnboardingFile } from "@/app/actions/onboarding";
+import { formatFileSize } from "@/component/projects/projectUi";
 import { poppins } from "@/component/shared/fonts";
 import {
   AGENCY_EMAIL,
@@ -16,6 +18,9 @@ import {
   GOOGLE,
   MAX_COMPETITORS,
   MEDIA,
+  MEDIA_MAX_FILES,
+  MEDIA_UPLOAD,
+  MEDIA_UPLOAD_MAX_FILES,
   PAGE_CHOICES,
   SOCIAL,
   STEPS,
@@ -29,14 +34,12 @@ import {
   itemsOf,
   platformsOf,
   statusesOf,
-  stepOfItem,
   toBackend,
   type Account,
   type Answers,
   type Competitor,
   type Media,
   type PlatformGroup,
-  type Status,
   type StepId,
   type Tone,
 } from "./onboardingData";
@@ -84,7 +87,6 @@ const STEP_ICONS: Record<StepId, LucideIcon> = {
   google: MapPin,
   social: Users,
   media: Camera,
-  review: ListChecks,
 };
 
 // ── Small pieces ─────────────────────────────────────────────────────────────
@@ -207,6 +209,11 @@ type Form = {
   set: (key: string, value: string | boolean | undefined) => void;
   patch: (changes: Answers) => void;
   setTicks: (id: string, ticks: boolean[]) => void;
+  // The photos and videos uploaded so far, by the id of their item; and whether more can be
+  // (only someone signed in can upload — the files go onto their own record).
+  files: Record<string, OnboardingFile[]>;
+  setFiles: (id: string, files: OnboardingFile[]) => void;
+  canUpload: boolean;
   say: (message: string) => void;
 };
 
@@ -238,7 +245,7 @@ const Field = ({
   name: string;
   label: ReactNode;
   hint?: string;
-  type?: "text" | "url" | "number" | "email" | "tel";
+  type?: "text" | "url" | "number" | "email" | "tel" | "password";
   placeholder?: string;
   first?: boolean;
   disabled?: boolean;
@@ -721,16 +728,191 @@ const LogoItem = ({ form }: { form: Form }) => {
 
 // A Google or social account: whether they have it, and then either how we get in, or
 // whether we should make one.
+// Access given to our own profile on the platform — a Facebook Page is shared with a person,
+// not with an email. It shows the profile to add, and then there are just two things to say:
+// access is given, or help is needed. (One takes the other back; a second click takes it back itself.)
+const ProfileAccess = ({ form, account }: { form: Form; account: Account & { profile: NonNullable<Account["profile"]> } }) => {
+  const { id, profile } = account;
+  const given = form.answers[`${id}.done`] === true;
+  const needsHelp = form.answers[`${id}.help`] === true;
+  const shown = profile.url.replace(/^https?:\/\/(www\.)?/, "").replace(/\/$/, "");
+
+  const choose = (which: "done" | "help") =>
+    form.patch({ [`${id}.access`]: "invite", [`${id}.done`]: which === "done" && !given, [`${id}.help`]: which === "help" && !needsHelp });
+  // The username is what gets typed into the platform's "add people" search.
+  const copy = () => {
+    if (!navigator.clipboard) return form.say(profile.username);
+    navigator.clipboard.writeText(profile.username).then(
+      () => form.say("Username copied."),
+      () => form.say(profile.username),
+    );
+  };
+
+  const choiceClass = "inline-flex cursor-pointer items-center gap-2 rounded-lg border px-4 py-2.5 text-[12.5px] font-semibold transition-colors";
+
+  return (
+    <>
+      <p className={questionClass}>Add our {account.short} profile as an admin of your Page</p>
+      <div className="rounded-xl border border-[#cfdcf6] bg-[#eff4fd] p-4">
+        <div className="flex flex-wrap items-center gap-3">
+          {/* The profile's picture, with the platform's mark on its corner. */}
+          <span className="relative shrink-0">
+            <Image src={profile.image} alt="" width={48} height={48} className="h-12 w-12 rounded-full border-2 border-white object-cover shadow-[0_1px_3px_rgba(15,23,42,0.18)]" />
+            <span aria-hidden="true" className="absolute -right-1 -bottom-1 flex h-5 w-5 items-center justify-center rounded-full border-2 border-white bg-[#1877f2] font-serif text-[12px] leading-none font-bold text-white">
+              f
+            </span>
+          </span>
+          <div className="min-w-0 flex-1">
+            <div className="text-[11px] font-medium text-[#6b7280]">Our {account.short} profile</div>
+            <div className="flex items-center gap-1.5">
+              <span className="truncate text-[13.5px] font-semibold text-[#0b0c24]">{profile.username}</span>
+              <button
+                type="button"
+                onClick={copy}
+                aria-label="Copy username"
+                title="Copy username"
+                className="inline-flex shrink-0 cursor-pointer items-center gap-1 rounded-md border border-[#cfdcf6] bg-white px-1.5 py-0.5 text-[11px] font-semibold text-[#2f5fd8] hover:border-[#2f5fd8]"
+              >
+                <Copy size={12} strokeWidth={2.25} /> Copy
+              </button>
+            </div>
+            <a href={profile.url} target="_blank" rel="noopener noreferrer" className="block truncate text-[12px] font-medium text-[#2f5fd8] underline underline-offset-[3px]">
+              {shown}
+            </a>
+          </div>
+          <a href={profile.url} target="_blank" rel="noopener noreferrer" className={`${smallButton} shrink-0 no-underline`}>
+            Open <ExternalLink size={13} strokeWidth={2.25} />
+          </a>
+        </div>
+        <p className="mt-3 border-t border-[#cfdcf6] pt-3 text-[12px] leading-normal text-[#374151]">
+          <Rich text={profile.how} />
+        </p>
+      </div>
+
+      <div role="group" aria-label={`Access to your ${account.name}`} className="mt-3 flex flex-wrap gap-2">
+        <button
+          type="button"
+          aria-pressed={given}
+          onClick={() => choose("done")}
+          className={`${choiceClass} ${given ? "border-[#16a34a] bg-[#16a34a] text-white" : "border-[#e2e5e9] bg-white text-[#1f2530] hover:border-[#16a34a] hover:text-[#15803d]"}`}
+        >
+          <Check size={15} strokeWidth={2.5} /> I&apos;ve given access
+        </button>
+        <button
+          type="button"
+          aria-pressed={needsHelp}
+          onClick={() => choose("help")}
+          className={`${choiceClass} ${needsHelp ? "border-[#6d28d9] bg-[#6d28d9] text-white" : "border-[#e2e5e9] bg-white text-[#1f2530] hover:border-[#6d28d9] hover:text-[#6d28d9]"}`}
+        >
+          <LifeBuoy size={15} strokeWidth={2.25} /> I need help
+        </button>
+      </div>
+      <Collapse open={given}>
+        <Note tone="green" icon={Check}>
+          Thanks. We&apos;ll accept the invite and confirm by email.
+        </Note>
+      </Collapse>
+      <Collapse open={needsHelp}>
+        <Note tone="violet">Your account manager will reach out to help you with this.</Note>
+      </Collapse>
+    </>
+  );
+};
+
+// An account's own login, asked for on the form: the username or email it is signed in with,
+// and its password. The password is sent as typed, sealed by the backend before it is stored,
+// and never comes back — once saved, the page only knows that there is one.
+const LoginFields = ({ form, account }: { form: Form; account: Account }) => {
+  const { id } = account;
+  const passwordSaved = form.answers[`${id}.passwordSet`] === true;
+
+  return (
+    <>
+      <div className="grid gap-x-3.5 sm:grid-cols-2">
+        <Field form={form} id={`${id}-username`} name={`${id}.username`} label={`${account.short} username or email`} placeholder="you@yourbusiness.com" autoComplete="off" />
+        <Field
+          form={form}
+          id={`${id}-password`}
+          name={`${id}.password`}
+          type="password"
+          label={`${account.short} password`}
+          hint={passwordSaved ? "(saved — type a new one to replace it)" : undefined}
+          placeholder={passwordSaved ? "••••••••" : undefined}
+          autoComplete="off"
+          maxLength={200}
+        />
+      </div>
+      <Note tone="blue" icon={Lock}>
+        We need both to sign in to your {account.short}. Your password is encrypted before it is stored, and it isn&apos;t shown on this page again.
+      </Note>
+    </>
+  );
+};
+
+// An account that rides on another one — Instagram, on the Facebook Page it is connected to.
+// Access to that one already lets us post here, so for posting nothing more is asked. Work on
+// the account itself (its profile, its settings, setting it up) needs its own login.
+const LinkedAccess = ({ form, account, via }: { form: Form; account: Account; via: Account }) => {
+  const { id } = account;
+  const access = form.answers[`${id}.access`];
+  const viaGiven = form.answers[`${via.id}.done`] === true;
+
+  return (
+    <>
+      <p className={account.placeholder ? questionClass : firstQuestionClass}>What do you need us to do on {account.short}?</p>
+      <Options
+        label={`What do you need us to do on ${account.short}?`}
+        value={access}
+        // Leaving "edit, update or set it up" gives the login up: the backend drops the password with it.
+        onChange={(value) => form.patch({ [`${id}.access`]: value, ...(value === "secure" ? {} : { [`${id}.password`]: "", [`${id}.passwordSet`]: false }) })}
+        choices={[
+          { value: "invite", label: "Just post for me" },
+          { value: "secure", label: "Edit, update or set it up" },
+        ]}
+      />
+      <Collapse open={access === "invite"}>
+        {viaGiven ? (
+          <Note tone="green" icon={Check}>
+            Nothing more to do here. You&apos;ve given us access to your {via.name}, and that lets us post to the {account.short} connected to it.
+          </Note>
+        ) : (
+          <Note tone="blue" icon={Info}>
+            Nothing more to do here. Access to your {via.name} lets us post to the {account.short} connected to it — give it in the {via.name} item above.
+          </Note>
+        )}
+      </Collapse>
+      <Collapse open={access === "secure"}>
+        <LoginFields form={form} account={account} />
+      </Collapse>
+    </>
+  );
+};
+
 const AccountItem = ({ form, account, google }: { form: Form; account: Account; google: boolean }) => {
-  const { id, steps } = account;
+  const { id, steps, profile } = account;
+  const via = account.via ? SOCIAL.find((other) => other.id === account.via) : undefined;
+  // Our profile to add, the account it rides on, or its own login: each has its own way in,
+  // in place of the choice between an invite and a secure link.
+  const special = Boolean(profile || via || account.login);
   const has = form.answers[`${id}.has`];
   const access = form.answers[`${id}.access`];
 
   return (
     <>
       <p className={firstQuestionClass}>Do you have {google ? "an account" : "this account"}?</p>
-      <Options label={`Do you have ${account.name}?`} value={has} choices={YES_NO_UNSURE} onChange={(value) => form.set(`${id}.has`, value)} />
-      <Reveal open={has === "yes"}>
+      <Options
+        label={`Do you have ${account.name}?`}
+        value={has}
+        choices={YES_NO_UNSURE}
+        // With a profile to add there is only one way to give access, so it isn't asked.
+        onChange={(value) => form.patch({ [`${id}.has`]: value, ...(profile && value === "yes" ? { [`${id}.access`]: "invite" } : {}) })}
+      />
+      {/* Every account they have starts with where it is; how we get in differs from one to the next. */}
+      <Reveal open={has === "yes" && special}>
+        {account.placeholder ? <Field form={form} id={`${id}-link`} name={`${id}.link`} label="Link or name" hint="(optional)" placeholder={account.placeholder} first /> : null}
+        {profile ? <ProfileAccess form={form} account={{ ...account, profile }} /> : via ? <LinkedAccess form={form} account={account} via={via} /> : <LoginFields form={form} account={account} />}
+      </Reveal>
+      <Reveal open={has === "yes" && !special}>
         {account.placeholder ? <Field form={form} id={`${id}-link`} name={`${id}.link`} label="Link or name" hint="(optional)" placeholder={account.placeholder} first /> : null}
         <p className={account.placeholder ? questionClass : firstQuestionClass}>How would you like to give us access?</p>
         <Options
@@ -772,6 +954,191 @@ const AccountItem = ({ form, account, google }: { form: Form; account: Account; 
   );
 };
 
+// Uploading photos or videos of one kind: pick or drop them, and they go straight to storage
+// (DigitalOcean Spaces, through app/api/onboarding/media) — there is nothing to save afterwards.
+// What is uploaded shows inside the same box, as a picture of each one, with a way to take it
+// back; the ones on their way up show there at once, dimmed, from the files on this device.
+const MediaUpload = ({ form, media }: { form: Form; media: Media }) => {
+  const rule = MEDIA_UPLOAD[media.id];
+  const list = form.files[media.id] ?? [];
+  const input = useRef<HTMLInputElement>(null);
+  const [uploading, setUploading] = useState(false);
+  // The file being taken back, by its URL.
+  const [removing, setRemoving] = useState<string | null>(null);
+  const [dragging, setDragging] = useState(false);
+  // The files being uploaded just now, pictured from this device until the stored ones replace them.
+  const [pending, setPending] = useState<{ name: string; url: string; video: boolean }[]>([]);
+  // What couldn't be uploaded on the last try, and why.
+  const [problems, setProblems] = useState<string[]>([]);
+  const busy = uploading || removing !== null;
+
+  // Takes what fits — the right type, within the size limit, and as many as there is room
+  // for — and says what was left out.
+  const upload = async (picked: File[]) => {
+    if (!picked.length || busy) return;
+    const skipped: string[] = [];
+    const fitting = picked.filter((file) => {
+      if (!rule.accept.includes(file.type)) return skipped.push(`${file.name}: only ${rule.formats} here.`) && false;
+      if (file.size > rule.maxMb * 1024 * 1024) return skipped.push(`${file.name}: larger than ${rule.maxMb}MB.`) && false;
+      return true;
+    });
+    const room = Math.min(MEDIA_UPLOAD_MAX_FILES, MEDIA_MAX_FILES - list.length);
+    const sending = fitting.slice(0, Math.max(room, 0));
+    if (fitting.length > sending.length) skipped.push(`${fitting.length - sending.length} more left out: up to ${MEDIA_UPLOAD_MAX_FILES} at a time, ${MEDIA_MAX_FILES} in all.`);
+    setProblems(skipped);
+    if (!sending.length) return;
+
+    setUploading(true);
+    const previews = sending.map((file) => ({ name: file.name, url: URL.createObjectURL(file), video: file.type.startsWith("video/") }));
+    setPending(previews);
+    try {
+      const body = new FormData();
+      for (const file of sending) body.append("files", file);
+      const response = await fetch(`/api/onboarding/media/${rule.kind}`, { method: "POST", body });
+      const result = await response.json().catch(() => null);
+      if (response.ok && Array.isArray(result?.data?.files)) {
+        form.setFiles(media.id, result.data.files);
+        form.say(sending.length === 1 ? "1 file uploaded." : `${sending.length} files uploaded.`);
+      } else {
+        setProblems([...skipped, result?.message ?? "Couldn't upload. Please try again.", ...(Array.isArray(result?.errors) ? result.errors : [])]);
+      }
+    } catch {
+      setProblems([...skipped, "Network error. Please try again."]);
+    }
+    setPending([]);
+    for (const preview of previews) URL.revokeObjectURL(preview.url);
+    setUploading(false);
+  };
+
+  const remove = async (file: OnboardingFile) => {
+    if (busy) return;
+    setRemoving(file.url);
+    try {
+      const response = await fetch(`/api/onboarding/media/${rule.kind}`, { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ url: file.url }) });
+      const result = await response.json().catch(() => null);
+      if (response.ok && Array.isArray(result?.data?.files)) form.setFiles(media.id, result.data.files);
+      else setProblems([result?.message ?? `Couldn't remove ${file.name}.`]);
+    } catch {
+      setProblems(["Network error. Please try again."]);
+    }
+    setRemoving(null);
+  };
+
+  const onDrop = (event: DragEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    setDragging(false);
+    upload(Array.from(event.dataTransfer.files));
+  };
+
+  // A picture of one file: the image itself, or the video's opening frame.
+  const picture = (url: string, video: boolean) =>
+    video ? (
+      <video src={`${url}#t=0.1`} preload="metadata" muted playsInline className="h-full w-full object-cover" />
+    ) : (
+      // A stored file sits on the storage's own address, and one on its way up is a blob from
+      // this device: neither can go through next/image.
+      // eslint-disable-next-line @next/next/no-img-element
+      <img src={url} alt="" className="h-full w-full object-cover" />
+    );
+
+  const tileClass = "relative aspect-square overflow-hidden rounded-lg border border-[#e6e8eb] bg-white";
+  const nameClass = "pointer-events-none absolute inset-x-0 bottom-0 truncate bg-[#0b0c24]/65 px-1.5 py-0.5 text-[10px] font-medium text-white";
+  const hint = `${rule.formats} · up to ${rule.maxMb}MB each · up to ${MEDIA_UPLOAD_MAX_FILES} at a time`;
+  const empty = list.length === 0 && pending.length === 0;
+
+  return (
+    <>
+      <input
+        ref={input}
+        type="file"
+        multiple
+        accept={rule.accept.join(",")}
+        className="hidden"
+        onChange={(event) => {
+          upload(Array.from(event.target.files ?? []));
+          // Clear it so picking the same file again still fires a change.
+          event.target.value = "";
+        }}
+      />
+      <div
+        className={`rounded-xl border-[1.5px] border-dashed transition-colors ${dragging ? "border-[#2f5fd8] bg-[#eef3fd]" : "border-[#d5d9df] bg-[#f9fafb]"}`}
+        onDragOver={(event) => {
+          event.preventDefault();
+          setDragging(true);
+        }}
+        onDragLeave={() => setDragging(false)}
+        onDrop={onDrop}
+      >
+        {empty ? (
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => input.current?.click()}
+            className="flex w-full cursor-pointer flex-col items-center rounded-xl px-3 py-5 text-center hover:bg-[#f3f6fd] disabled:cursor-wait disabled:opacity-70"
+          >
+            <Upload size={22} strokeWidth={2} className="mb-1.5 text-[#2f5fd8]" />
+            <span className="text-[12.5px] font-medium text-[#0b0c24]">{dragging ? "Drop to upload" : "Click to upload, or drag files here"}</span>
+            <span className="mt-0.5 text-[11px] text-[#6b7280]">{hint}</span>
+          </button>
+        ) : (
+          <div className="p-3">
+            <ul className="grid list-none grid-cols-[repeat(auto-fill,minmax(104px,1fr))] gap-2.5">
+              {list.map((file) => (
+                <li key={file.url} className={`${tileClass} ${removing === file.url ? "opacity-55" : ""}`}>
+                  <a href={file.url} target="_blank" rel="noopener noreferrer" title={`${file.name} · ${formatFileSize(file.size)}`} className="block h-full w-full">
+                    {picture(file.url, file.mimeType.startsWith("video/"))}
+                  </a>
+                  <span className={nameClass}>{file.name}</span>
+                  <button
+                    type="button"
+                    disabled={busy}
+                    aria-label={`Remove ${file.name}`}
+                    onClick={() => remove(file)}
+                    className="absolute top-1 right-1 inline-flex h-6 w-6 cursor-pointer items-center justify-center rounded-full bg-white/95 text-[#4b5260] shadow-[0_1px_3px_rgba(15,23,42,0.25)] hover:bg-[#fdecec] hover:text-[#b42318] disabled:cursor-wait"
+                  >
+                    {removing === file.url ? <Loader2 size={12} strokeWidth={2.5} className="animate-spin" /> : <X size={13} strokeWidth={2.5} />}
+                  </button>
+                </li>
+              ))}
+              {pending.map((file) => (
+                <li key={file.url} className={tileClass} aria-busy="true">
+                  <span className="block h-full w-full opacity-45">{picture(file.url, file.video)}</span>
+                  <span className="absolute inset-0 grid place-items-center">
+                    <Loader2 size={20} strokeWidth={2.5} className="animate-spin text-[#2f5fd8]" />
+                  </span>
+                  <span className={nameClass}>{file.name}</span>
+                </li>
+              ))}
+              <li>
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => input.current?.click()}
+                  className="flex aspect-square w-full cursor-pointer flex-col items-center justify-center gap-1 rounded-lg border-[1.5px] border-dashed border-[#c7cbd1] bg-white text-[11.5px] font-medium text-[#2f5fd8] hover:border-[#2f5fd8] hover:bg-[#f3f6fd] disabled:cursor-wait disabled:opacity-70"
+                >
+                  <Plus size={18} strokeWidth={2.25} />
+                  {uploading ? "Uploading…" : "Add more"}
+                </button>
+              </li>
+            </ul>
+            <p className="mt-2.5 text-center text-[11px] text-[#6b7280]">
+              {dragging ? "Drop to upload" : `${list.length} uploaded · ${hint}`}
+            </p>
+          </div>
+        )}
+      </div>
+
+      {problems.length ? (
+        <div role="alert" className="mt-2.5 rounded-lg border border-[#f5c2c2] bg-[#fdecec] px-3.5 py-2.5 text-[12px] text-[#b42318]">
+          {problems.map((problem) => (
+            <div key={problem}>{problem}</div>
+          ))}
+        </div>
+      ) : null}
+    </>
+  );
+};
+
 const MediaItem = ({ form, media }: { form: Form; media: Media }) => {
   const { id } = media;
   const mode = form.answers[`${id}.mode`];
@@ -790,9 +1157,24 @@ const MediaItem = ({ form, media }: { form: Form; media: Media }) => {
         ]}
       />
       <Reveal open={mode === "upload"}>
-        <Field form={form} id={`${id}-link`} name={`${id}.link`} type="url" label="Shared folder link" placeholder="Google Drive, Dropbox or WeTransfer link" first />
+        {form.canUpload ? (
+          <>
+            <p className={firstQuestionClass}>Upload your {media.name.toLowerCase()}</p>
+            <MediaUpload form={form} media={media} />
+          </>
+        ) : null}
+        <Field
+          form={form}
+          id={`${id}-link`}
+          name={`${id}.link`}
+          type="url"
+          label={form.canUpload ? "Or share a link" : "Shared folder link"}
+          hint={form.canUpload ? "(optional)" : undefined}
+          placeholder="Google Drive, Dropbox or WeTransfer link"
+          first={!form.canUpload}
+        />
         <div className={`${hintClass} mt-1.5`}>
-          Put your {media.name.toLowerCase()} in a shared folder and paste its link. {media.formats}.
+          {form.canUpload ? "Too many or too large to upload? Put" : "Put"} your {media.name.toLowerCase()} in a shared folder and paste its link. {media.formats}.
         </div>
       </Reveal>
       <Reveal open={mode === "create"}>
@@ -803,55 +1185,11 @@ const MediaItem = ({ form, media }: { form: Form; media: Media }) => {
   );
 };
 
-// ── The review, and what happens after submitting ────────────────────────────
-
-const LEGEND: [Tone, string][] = [
-  ["done", "Done"],
-  ["pending", "Waiting on you"],
-  ["create", "We'll create it"],
-  ["followup", "Manager will follow up"],
-];
-
-const Review = ({ statuses, onEdit }: { statuses: Status[]; onEdit: (item: string) => void }) => {
-  const groups = [...new Set(statuses.map((status) => status.group))];
-  return (
-    <>
-      <div className="mb-4 flex flex-wrap gap-1.5">
-        {LEGEND.map(([tone, label]) => (
-          <Pill key={tone} tone={tone}>
-            {label}
-          </Pill>
-        ))}
-      </div>
-      <div className="flex flex-col gap-4.5">
-        {groups.map((group) => (
-          <div key={group}>
-            <h4 className="mb-1.5 text-[10.5px] font-semibold tracking-[0.06em] text-[#6b7280] uppercase">{group}</h4>
-            <div className="flex flex-col gap-1.5">
-              {statuses
-                .filter((status) => status.group === group)
-                .map((status) => (
-                  <button
-                    key={status.id}
-                    type="button"
-                    onClick={() => onEdit(status.id)}
-                    className="flex w-full cursor-pointer items-center justify-between gap-2.5 rounded-lg border border-[#e6e8eb] bg-white px-3 py-2.5 text-left text-[12.5px] font-medium text-[#1f2530] transition-colors hover:border-[#2f5fd8]"
-                  >
-                    <span>{status.name}</span>
-                    <Pill tone={status.tone}>{status.label}</Pill>
-                  </button>
-                ))}
-            </div>
-          </div>
-        ))}
-      </div>
-    </>
-  );
-};
+// ── What happens after submitting ────────────────────────────────────────────
 
 // The popup that says the onboarding went through: a tick that draws itself, and a thank-you
 // by name — nothing more. Its one button goes home; Escape or a click outside closes it.
-const Submitted = ({ name, company, onClose }: { name: string; company: string; onClose: () => void }) => {
+const Submitted = ({ name, company, mine, onClose }: { name: string; company: string; mine: boolean; onClose: () => void }) => {
   const firstName = name.trim().split(/\s+/)[0];
 
   useEffect(() => {
@@ -903,8 +1241,8 @@ const Submitted = ({ name, company, onClose }: { name: string; company: string; 
         </div>
 
         <div className="flex flex-wrap items-center justify-center gap-2.5 border-t border-[#eef0f2] px-7 py-4">
-          <Link href="/" autoFocus className="rounded-lg bg-[#0b0c24] px-5 py-2.5 text-[13px] font-semibold text-white no-underline hover:bg-[#1e2140]">
-            Back to home
+          <Link href={mine ? "/dashboard" : "/"} autoFocus className="rounded-lg bg-[#0b0c24] px-5 py-2.5 text-[13px] font-semibold text-white no-underline hover:bg-[#1e2140]">
+            {mine ? "Go to my dashboard" : "Back to home"}
           </Link>
         </div>
       </motion.div>
@@ -936,7 +1274,10 @@ type Saving = "step" | "later" | "submit" | "delete" | null;
 
 // `initial` is the onboarding this browser started earlier, if there is one: the form opens
 // with those answers, past the step that asks who is answering.
-const OnboardingProcess = ({ initial = null }: { initial?: Onboarding | null }) => {
+//
+// `mine` is for a client who is signed in: `initial` is then their own client record — so the
+// form opens already filled in with what we hold on them — and their answers are saved on it.
+const OnboardingProcess = ({ initial = null, mine = false }: { initial?: Onboarding | null; mine?: boolean }) => {
   const [seed] = useState(() => (initial ? fromBackend(initial) : null));
   const [answers, setAnswers] = useState<Answers>(seed?.answers ?? BLANK_ANSWERS);
   // Access that was given was given by ticking every step: they show ticked again.
@@ -946,12 +1287,14 @@ const OnboardingProcess = ({ initial = null }: { initial?: Onboarding | null }) 
   const [competitors, setCompetitors] = useState<Competitor[]>(seed?.competitors ?? BLANK_COMPETITORS);
   const [pages, setPages] = useState(seed?.pages ?? DEFAULT_PAGES);
   const [features, setFeatures] = useState(seed?.features ?? DEFAULT_FEATURES);
+  const [files, setAllFiles] = useState<Record<string, OnboardingFile[]>>(seed?.files ?? {});
 
   // Whether the backend holds this onboarding yet. It does from the first save on.
-  const [started, setStarted] = useState(Boolean(initial));
+  const [started, setStarted] = useState(mine || Boolean(initial));
   const [saving, setSaving] = useState<Saving>(null);
 
-  const [current, setCurrent] = useState(initial ? 1 : 0);
+  // A signed-in client starts on their details: they were filled in for them, and are worth a look.
+  const [current, setCurrent] = useState(initial && !mine ? 1 : 0);
   // The item open in a step that shows its items one at a time.
   const [openItem, setOpenItem] = useState<string | null>(null);
   const [toast, setToast] = useState<{ id: number; message: string } | null>(null);
@@ -975,6 +1318,13 @@ const OnboardingProcess = ({ initial = null }: { initial?: Onboarding | null }) 
     set: (key, value) => setAnswers((now) => ({ ...now, [key]: value })),
     patch: (changes) => setAnswers((now) => ({ ...now, ...changes })),
     setTicks: (id, next) => setAllTicks((now) => ({ ...now, [id]: next })),
+    files,
+    // Whether an item has files is also kept with the answers, for where the item stands.
+    setFiles: (id, next) => {
+      setAllFiles((now) => ({ ...now, [id]: next }));
+      setAnswers((now) => ({ ...now, [`${id}.hasFiles`]: next.length > 0, ...(next.length ? { [`${id}.mode`]: "upload" } : {}) }));
+    },
+    canUpload: mine,
     say,
   };
 
@@ -1019,26 +1369,68 @@ const OnboardingProcess = ({ initial = null }: { initial?: Onboarding | null }) 
       ...(submit === undefined ? {} : { submit }),
     };
     const start = () => startOnboardingAction({ ...details, email: text(answers, "contact.email").trim() });
-    let result = started ? await updateOnboardingAction(details) : await start();
+    let result = mine ? await updateMyOnboardingAction(details) : started ? await updateOnboardingAction(details) : await start();
     // What this browser had saved is gone (it was deleted, or its key was lost): everything is
     // still on the form, so it is simply saved again as a new onboarding.
-    if (started && !result.ok && result.status === 404) result = await start();
+    if (!mine && started && !result.ok && result.status === 404) result = await start();
     setSaving(null);
 
     if (!result.ok) {
       // Taken on by the team: it is theirs now, and no longer editable from here.
-      if (started && result.status === 409) setStarted(false);
+      if (!mine && started && result.status === 409) setStarted(false);
       setFailure({ message: result.error ?? "Couldn't save your answers. Please try again.", details: result.fieldErrors ?? [] });
       return false;
     }
     setStarted(true);
+    // A password typed just now is with the backend, sealed: the page lets go of it, and
+    // remembers only that one is stored.
+    setAnswers((now) => {
+      const typed = Object.keys(now).filter((key) => key.endsWith(".password") && now[key]);
+      if (!typed.length) return now;
+      const next = { ...now };
+      for (const key of typed) {
+        delete next[key];
+        next[`${key.slice(0, -".password".length)}.passwordSet`] = true;
+      }
+      return next;
+    });
     return true;
+  };
+
+  // The questions on a step that still have no answer.
+  const unansweredOn = (id: StepId) =>
+    itemsOf(id, answers).filter((item) => {
+      const status = statusOf(item);
+      return !status || !isAnswered(status);
+    });
+
+  // Says which questions on this step still need an answer, and opens the first of them.
+  const askForAnswers = () => {
+    const missing = unansweredOn(step.id);
+    setFailure({
+      message: "Answer every question on this step before going on — or choose “Save and finish later” to keep what you have so far.",
+      details: missing.map((item) => statusOf(item)?.name ?? item),
+    });
+    if (accordion) setOpenItem(missing[0] ?? null);
+    setTimeout(() => document.getElementById(`onboarding-${missing[0]}`)?.scrollIntoView({ behavior: "smooth", block: "center" }), 50);
+    return false;
   };
 
   // Opens a step — at the item named, or else at the first one still unanswered. What is on
   // the form is saved first; if that fails, the step stays where it is.
-  const go = async (index: number, item?: string) => {
-    if (index < 0 || index >= STEPS.length || saving) return false;
+  //
+  // Going forward needs every question on the way answered: with one still open on this step
+  // it stays here and says which, and a jump further ahead stops at the first step that has
+  // one. (Who is answering is checked by `save`, which has its own words for it.) Going back
+  // is always allowed, and so is "Save and finish later", which asks for nothing.
+  const go = async (target: number, item?: string) => {
+    if (target < 0 || target >= STEPS.length || saving) return false;
+    let index = target;
+    if (target > current) {
+      const stop = STEPS.findIndex((entry, at) => at >= current && at < target && entry.id !== "contact" && !finished(entry.id));
+      if (stop === current) return askForAnswers();
+      if (stop !== -1) index = stop;
+    }
     if (!(await save("step"))) return false;
     const next = STEPS[index];
     const own = itemsOf(next.id, answers);
@@ -1052,14 +1444,8 @@ const OnboardingProcess = ({ initial = null }: { initial?: Onboarding | null }) 
     return true;
   };
 
-  // From the review: opens the item where it is asked, and brings it into view once it is drawn.
-  const edit = async (item: string) => {
-    if (!(await go(STEPS.findIndex((entry) => entry.id === stepOfItem(item)), item))) return;
-    setTimeout(() => document.getElementById(`onboarding-${item}`)?.scrollIntoView({ behavior: "smooth", block: "center" }), 350);
-  };
-
   const saveForLater = async () => {
-    if (await save("later")) say("Saved. Come back on this browser any time to finish.");
+    if (await save("later")) say(mine ? "Saved. Come back any time to finish." : "Saved. Come back on this browser any time to finish.");
   };
 
   // Empties the form, back to its first step.
@@ -1069,6 +1455,7 @@ const OnboardingProcess = ({ initial = null }: { initial?: Onboarding | null }) 
     setCompetitors(BLANK_COMPETITORS);
     setPages(DEFAULT_PAGES);
     setFeatures(DEFAULT_FEATURES);
+    setAllFiles({});
     setStarted(false);
     setFailure(null);
     setCurrent(0);
@@ -1078,10 +1465,17 @@ const OnboardingProcess = ({ initial = null }: { initial?: Onboarding | null }) 
   // Hands the onboarding in. Once it has gone through, the form is emptied: the answers are
   // with the team now, and this browser no longer holds them.
   const submit = async () => {
+    // It can only be handed in whole: everything answered, as each step asked on the way here.
+    const open = statuses.filter((status) => !isAnswered(status));
+    if (open.length) {
+      setFailure({ message: "A few questions still need an answer before you can submit. They are on the steps that aren't ticked yet.", details: open.map((status) => status.name) });
+      return;
+    }
     const who = { name: text(answers, "contact.name"), company: text(answers, "contact.company") };
     if (!(await save("submit", true))) return;
     setSubmitted(who);
-    reset();
+    // A signed-in client's answers stay on their record, and so on the form.
+    if (!mine) reset();
     window.scrollTo({ top: 0 });
   };
 
@@ -1194,65 +1588,61 @@ const OnboardingProcess = ({ initial = null }: { initial?: Onboarding | null }) 
                   </div>
                 </div>
 
-                {step.id === "review" ? (
-                  <Review statuses={statuses} onEdit={edit} />
-                ) : (
-                  <div className="flex flex-col gap-3.5">
-                    {items.map((item, index) => {
-                      const status = statusOf(item);
-                      const open = !accordion || openItem === item;
-                      const after = items[index + 1];
-                      return (
-                        <div
-                          key={item}
-                          id={`onboarding-${item}`}
-                          className={`scroll-mt-4 rounded-xl border p-4.5 transition-[border-color,box-shadow,background-color] ${
-                            !accordion
-                              ? "border-[#e6e8eb] bg-white"
-                              : open
-                                ? "border-[#c9d6f5] bg-white shadow-[0_0_0_3px_#e8effd]"
-                                : "border-[#e6e8eb] bg-[#fcfcfd] hover:border-[#c7cbd1]"
-                          }`}
-                        >
-                          {accordion ? (
-                            <button
-                              type="button"
-                              aria-expanded={open}
-                              onClick={() => setOpenItem(open ? null : item)}
-                              className="flex w-full cursor-pointer flex-wrap items-center justify-between gap-3 py-0.5 text-left"
-                            >
-                              <span className="flex items-center gap-2.5 text-[14px] font-semibold text-[#0b0c24]">
-                                <ChevronDown size={15} strokeWidth={2.25} className={`shrink-0 text-[#6b7280] transition-transform ${open ? "" : "-rotate-90"}`} />
-                                {ITEM_TITLES[item]}
-                              </span>
-                              {status ? <Pill tone={status.tone}>{status.label}</Pill> : null}
-                            </button>
-                          ) : (
-                            <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
-                              <h3 className="text-[14px] font-semibold text-[#0b0c24]">{ITEM_TITLES[item]}</h3>
-                              {status ? <Pill tone={status.tone}>{status.label}</Pill> : null}
-                            </div>
-                          )}
+                <div className="flex flex-col gap-3.5">
+                  {items.map((item, index) => {
+                    const status = statusOf(item);
+                    const open = !accordion || openItem === item;
+                    const after = items[index + 1];
+                    return (
+                      <div
+                        key={item}
+                        id={`onboarding-${item}`}
+                        className={`scroll-mt-4 rounded-xl border p-4.5 transition-[border-color,box-shadow,background-color] ${
+                          !accordion
+                            ? "border-[#e6e8eb] bg-white"
+                            : open
+                              ? "border-[#c9d6f5] bg-white shadow-[0_0_0_3px_#e8effd]"
+                              : "border-[#e6e8eb] bg-[#fcfcfd] hover:border-[#c7cbd1]"
+                        }`}
+                      >
+                        {accordion ? (
+                          <button
+                            type="button"
+                            aria-expanded={open}
+                            onClick={() => setOpenItem(open ? null : item)}
+                            className="flex w-full cursor-pointer flex-wrap items-center justify-between gap-3 py-0.5 text-left"
+                          >
+                            <span className="flex items-center gap-2.5 text-[14px] font-semibold text-[#0b0c24]">
+                              <ChevronDown size={15} strokeWidth={2.25} className={`shrink-0 text-[#6b7280] transition-transform ${open ? "" : "-rotate-90"}`} />
+                              {ITEM_TITLES[item]}
+                            </span>
+                            {status ? <Pill tone={status.tone}>{status.label}</Pill> : null}
+                          </button>
+                        ) : (
+                          <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+                            <h3 className="text-[14px] font-semibold text-[#0b0c24]">{ITEM_TITLES[item]}</h3>
+                            {status ? <Pill tone={status.tone}>{status.label}</Pill> : null}
+                          </div>
+                        )}
 
-                          {accordion ? (
-                            <Collapse open={open}>
-                              <div className="pt-3">
-                                {bodyOf(item)}
-                                <div className="mt-4 flex justify-end border-t border-[#e6e8eb] pt-3.5">
-                                  <button type="button" className={smallButton} onClick={() => (after ? setOpenItem(after) : go(current + 1))}>
-                                    {after ? `Next: ${ITEM_TITLES[after]} →` : nextStep ? `Done, go to ${nextStep.title} →` : "Done"}
-                                  </button>
-                                </div>
+                        {accordion ? (
+                          <Collapse open={open}>
+                            <div className="pt-3">
+                              {bodyOf(item)}
+                              <div className="mt-4 flex justify-end border-t border-[#e6e8eb] pt-3.5">
+                                <button type="button" className={smallButton} onClick={() => (after ? setOpenItem(after) : nextStep ? go(current + 1) : setOpenItem(null))}>
+                                  {after ? `Next: ${ITEM_TITLES[after]} →` : nextStep ? `Done, go to ${nextStep.title} →` : "Done"}
+                                </button>
                               </div>
-                            </Collapse>
-                          ) : (
-                            bodyOf(item)
-                          )}
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
+                            </div>
+                          </Collapse>
+                        ) : (
+                          bodyOf(item)
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
               </motion.section>
             </AnimatePresence>
 
@@ -1335,7 +1725,7 @@ const OnboardingProcess = ({ initial = null }: { initial?: Onboarding | null }) 
               </p>
               <ol className="mt-3.5 flex flex-col">
                 {STEPS.map((entry, index) => {
-                  const done = entry.id !== "review" && finished(entry.id);
+                  const done = finished(entry.id);
                   const here = index === current;
                   return (
                     <li key={entry.id}>
@@ -1363,14 +1753,17 @@ const OnboardingProcess = ({ initial = null }: { initial?: Onboarding | null }) 
               {started ? (
                 <div className="mt-3.5 border-t border-[#eef0f2] pt-3 text-[11.5px] leading-normal text-[#6b7280]">
                   Saved under <b className="font-semibold break-all text-[#1f2530]">{text(answers, "contact.email")}</b>
-                  <button
-                    type="button"
-                    disabled={saving !== null}
-                    onClick={startOver}
-                    className="mt-1 block cursor-pointer underline underline-offset-[3px] hover:text-[#b42318] disabled:cursor-wait disabled:opacity-60"
-                  >
-                    {saving === "delete" ? "Deleting…" : "Delete my answers and start over"}
-                  </button>
+                  {/* Deleting would take the whole client record with it — not for a client with an account. */}
+                  {mine ? null : (
+                    <button
+                      type="button"
+                      disabled={saving !== null}
+                      onClick={startOver}
+                      className="mt-1 block cursor-pointer underline underline-offset-[3px] hover:text-[#b42318] disabled:cursor-wait disabled:opacity-60"
+                    >
+                      {saving === "delete" ? "Deleting…" : "Delete my answers and start over"}
+                    </button>
+                  )}
                 </div>
               ) : null}
             </div>
@@ -1394,7 +1787,7 @@ const OnboardingProcess = ({ initial = null }: { initial?: Onboarding | null }) 
                     </button>
                   </div>
                   <p className="mt-3 text-[11.5px] leading-normal text-[#6b7280]">
-                    Never type passwords on this page. If a platform needs one, choose &quot;Share login securely&quot; and we&apos;ll send you a private link.
+                    Only type a password where this page asks for one. For anything else, choose &quot;Share login securely&quot; and we&apos;ll send you a private link.
                   </p>
                 </motion.div>
               ) : null}
@@ -1403,7 +1796,7 @@ const OnboardingProcess = ({ initial = null }: { initial?: Onboarding | null }) 
         </div>
 
         <AnimatePresence>
-          {submitted ? <Submitted name={submitted.name} company={submitted.company} onClose={() => setSubmitted(null)} /> : null}
+          {submitted ? <Submitted name={submitted.name} company={submitted.company} mine={mine} onClose={() => setSubmitted(null)} /> : null}
         </AnimatePresence>
 
         <AnimatePresence>

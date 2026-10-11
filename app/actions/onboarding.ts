@@ -1,6 +1,7 @@
 "use server";
 
 import { cookies } from "next/headers";
+import { auth } from "@/auth";
 import { BACKEND_API_URL } from "@/lib/backend";
 
 // The onboarding form's calls to the backend (routes/onboarding.route.ts). Nobody is signed in
@@ -45,6 +46,12 @@ export interface OnboardingAccount {
   needsHelp?: boolean;
   // They don't have one: should we create it?
   wantsCreated?: boolean;
+  // The account's own login, when that is how we get in: its username or email, and its
+  // password. The password is write-only: it is sent as typed, stored sealed, and never comes
+  // back — `loginPasswordSet` says one is stored.
+  loginUsername?: string;
+  loginPassword?: string;
+  loginPasswordSet?: boolean;
 }
 
 // One kind of photos or videos. `files` is read-only here: the backend ignores it on the way in.
@@ -225,6 +232,54 @@ export async function updateOnboardingAction(input: UpdateOnboardingInput): Prom
     // Once it is handed in, this browser lets go of it: the form starts empty the next time,
     // and the answers are the team's to work from. (They stay stored — only the key is dropped.)
     if (input.submit === true) await forget();
+    return { ok: true, data };
+  } catch {
+    return NETWORK_ERROR;
+  }
+}
+
+// ── For a client who is signed in ────────────────────────────────────────────
+
+// A client with an account has their onboarding on their own client record (backend:
+// /onboarding/me). Their session opens it, not a key — so there is nothing to start, no cookie,
+// and it comes already filled in with what we hold on them.
+
+const NOT_SIGNED_IN = { ok: false as const, error: "Not authenticated.", status: 401 };
+
+async function callMine(method: "GET" | "PATCH", body?: unknown) {
+  const session = await auth();
+  if (!session?.accessToken) return null;
+  return fetch(`${API}/me`, {
+    method,
+    headers: { Authorization: `Bearer ${session.accessToken}`, ...(body ? { "Content-Type": "application/json" } : {}) },
+    body: body ? JSON.stringify(body) : undefined,
+    cache: "no-store",
+  });
+}
+
+// The signed-in client's details and answers so far.
+export async function getMyOnboardingAction(): Promise<OnboardingActionResult<Onboarding>> {
+  try {
+    const response = await callMine("GET");
+    if (!response) return NOT_SIGNED_IN;
+    if (!response.ok) return failure(response, "Couldn't load your onboarding.");
+
+    const { data } = (await response.json()) as { data: Onboarding };
+    return { ok: true, data };
+  } catch {
+    return NETWORK_ERROR;
+  }
+}
+
+// Saves the signed-in client's answers, and the name, company or phone given with them.
+// `submit: true` hands it in.
+export async function updateMyOnboardingAction(input: UpdateOnboardingInput): Promise<OnboardingActionResult<Onboarding>> {
+  try {
+    const response = await callMine("PATCH", input);
+    if (!response) return NOT_SIGNED_IN;
+    if (!response.ok) return failure(response, "Couldn't save your onboarding.");
+
+    const { data } = (await response.json()) as { data: Onboarding };
     return { ok: true, data };
   } catch {
     return NETWORK_ERROR;

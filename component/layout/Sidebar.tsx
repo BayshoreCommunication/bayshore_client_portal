@@ -1,24 +1,27 @@
 "use client";
 
-import Link from "next/link";
-import { usePathname } from "next/navigation";
-import { Fragment } from "react";
 import {
-  LayoutDashboard,
-  FileText,
-  Layers,
-  UserPlus,
-  Package,
+  Bell,
   Briefcase,
   Calendar,
-  MessageSquare,
   CreditCard,
-  Bell,
+  FileText,
+  Layers,
+  LayoutDashboard,
+  MessageSquare,
+  Package,
   Settings,
+  UserPlus,
   type LucideIcon,
 } from "lucide-react";
+import Link from "next/link";
+import { usePathname, useRouter } from "next/navigation";
+import { Fragment, useEffect } from "react";
 
 type NavItem = {
+  // What the team's choice of pages knows this one by (the backend's CLIENT_PORTAL_MENUS).
+  // Without one — Settings — it is always shown.
+  key?: string;
   label: string;
   icon: LucideIcon;
   href: string;
@@ -34,47 +37,66 @@ const NAV_SECTIONS: NavSection[] = [
   {
     heading: "Overview",
     items: [
-      { label: "Dashboard", icon: LayoutDashboard, href: "/dashboard" },
-      { label: "Reports", icon: FileText, href: "/reports" },
-      { label: "Content", icon: Layers, href: "/content" },
-      { label: "Leads", icon: UserPlus, href: "/leads" },
-      { label: "Projects", icon: Briefcase, href: "/projects" },
-      { label: "Services", icon: Package, href: "/services" },
+      { key: "dashboard", label: "Dashboard", icon: LayoutDashboard, href: "/dashboard" },
+      { key: "onboarding", label: "Onboarding", icon: LayoutDashboard, href: "/onboarding" },
+      { key: "reports", label: "Reports", icon: FileText, href: "/reports" },
+      { key: "content", label: "Content", icon: Layers, href: "/content" },
+      { key: "leads", label: "Leads", icon: UserPlus, href: "/leads" },
+      { key: "projects", label: "Projects", icon: Briefcase, href: "/projects" },
+      { key: "services", label: "Services", icon: Package, href: "/services" },
     ],
   },
   {
     heading: "Workspace",
     items: [
-      { label: "Calendar", icon: Calendar, href: "/calendar" },
-      { label: "Messages", icon: MessageSquare, href: "/messages", badge: 2 },
-      { label: "Payments", icon: CreditCard, href: "/payments" },
+      { key: "calendar", label: "Calendar", icon: Calendar, href: "/calendar" },
+      { key: "messages", label: "Messages", icon: MessageSquare, href: "/messages", badge: 2 },
+      { key: "payments", label: "Payments", icon: CreditCard, href: "/payments" },
     ],
   },
   {
     heading: "Account",
     items: [
-      { label: "Notifications", icon: Bell, href: "/notifications" },
+      { key: "notifications", label: "Notifications", icon: Bell, href: "/notifications" },
       { label: "Settings", icon: Settings, href: "/settings" },
     ],
   },
 ];
 
-const Sidebar = () => {
+// `menus` are the pages the client's team has left on for them, by key; null means all of them.
+const Sidebar = ({ menus }: { menus: string[] | null }) => {
   const pathname = usePathname();
+  const router = useRouter();
+
+  const shown = (item: NavItem) => !item.key || !menus || menus.includes(item.key);
+  const sections = NAV_SECTIONS.map((section) => ({ ...section, items: section.items.filter(shown) })).filter((section) => section.items.length > 0);
+
+  // A page that was taken off their menu isn't opened by its address either: they are sent to
+  // the first page they do have.
+  const hidden = NAV_SECTIONS.flatMap((section) => section.items).some((item) => !shown(item) && pathname.startsWith(item.href));
+  const home = sections[0]?.items[0]?.href ?? "/settings";
+  useEffect(() => {
+    if (hidden) router.replace(home);
+  }, [hidden, home, router]);
 
   return (
     // Stays put on the left while the page scrolls beside it; on a short screen it scrolls on its own.
     <div className="sticky top-0 flex h-screen w-[230px] shrink-0 flex-col self-start overflow-y-auto bg-[#0b1522] px-3.5 py-5 text-[#8b9baa] print:hidden">
       <div className="px-2.5 pb-6">
         {/* The front page — which, for someone signed in, is their dashboard (see proxy.ts). */}
-        <Link href="/" className="block font-serif text-xl font-bold tracking-[0.5px] text-white no-underline">
+        <Link
+          href="/"
+          className="block font-serif text-xl font-bold tracking-[0.5px] text-white no-underline"
+        >
           BayShore
         </Link>
-        <div className="mt-0.5 text-[9px] uppercase tracking-[1.5px] text-[#728496]">Client&apos;s Portal</div>
+        <div className="mt-0.5 text-[9px] uppercase tracking-[1.5px] text-[#728496]">
+          Client&apos;s Portal
+        </div>
       </div>
 
       <ul className="flex flex-col gap-1 list-none">
-        {NAV_SECTIONS.map((section) => (
+        {sections.map((section) => (
           <Fragment key={section.heading}>
             <li className="px-3 pb-1.5 pt-[18px] text-[10px] font-bold uppercase tracking-wide text-[#485b6d]">
               {section.heading}
@@ -94,7 +116,10 @@ const Sidebar = () => {
                       : "rounded-md text-[#9cb0c3] hover:bg-white/[0.04] hover:text-white"
                   }`}
                 >
-                  <Link href={item.href} className="flex flex-1 items-center gap-2.5 text-inherit no-underline">
+                  <Link
+                    href={item.href}
+                    className="flex flex-1 items-center gap-2.5 text-inherit no-underline"
+                  >
                     <Icon size={17} strokeWidth={2} />
                     {item.label}
                   </Link>
@@ -109,18 +134,6 @@ const Sidebar = () => {
           </Fragment>
         ))}
       </ul>
-
-      <div className="mt-auto rounded-lg bg-[#0f1c2c] p-3.5">
-        <p className="mb-2.5 text-[11px] leading-[1.4] text-[#7b8e9f]">
-          Need help with a report or an approval? We&apos;re here for you.
-        </p>
-        <a
-          href="#"
-          className="block w-full rounded-[5px] border border-[#23374e] bg-[#15273c] p-[7px] text-center text-[11.5px] font-semibold text-[#d1dbe5] no-underline"
-        >
-          Contact Support
-        </a>
-      </div>
     </div>
   );
 };

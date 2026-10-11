@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import "../globals.css";
 import { auth } from "@/auth";
+import { getMyPortalMenusAction } from "@/app/actions/portal";
 import Sidebar from "@/component/layout/Sidebar";
 import Topbar from "@/component/layout/Topbar";
 import { SessionUserProvider } from "@/component/shared/SessionUser";
@@ -23,11 +24,13 @@ const MainLayout = async ({ children }: { children: React.ReactNode }) => {
   }
 
   const name = session.user.name ?? "Client";
+  // Which pages their team has left on for them (null: couldn't be read, so all of them).
+  const menus = await getMyPortalMenusAction();
 
   return (
     <SessionUserProvider user={{ name, initials: initialsFromName(name) }}>
       <div className="flex min-h-screen">
-        <Sidebar />
+        <Sidebar menus={menus} />
         {/* No overflow here on purpose: the window is what scrolls, and an overflow container that
             never scrolls would stop `sticky` from working on every page inside it. */}
         <div className="flex min-w-0 flex-1 flex-col">

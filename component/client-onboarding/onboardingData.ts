@@ -1,4 +1,6 @@
-import type { Onboarding, OnboardingAccount, OnboardingAnswers, OnboardingMedia } from "@/app/actions/onboarding";
+import type { StaticImageData } from "next/image";
+import facebookProfilePicture from "@/public/assets/pic.jpg";
+import type { Onboarding, OnboardingAccount, OnboardingAnswers, OnboardingFile, OnboardingMedia } from "@/app/actions/onboarding";
 
 // What the onboarding form asks, how each answer is read, and how the answers go to the
 // backend and come back. Kept apart from the form so the questions can change without
@@ -139,7 +141,29 @@ export const accessOf = (group: PlatformGroup, platform: string): string[] | "bu
 
 // An account the client may already have. `steps` are how to invite us to it — none when
 // the platform has no such thing, and the login has to be shared instead.
-export type Account = { id: string; name: string; short: string; placeholder?: string; role?: string; steps: string[] | null };
+// `profile` is for a platform where access is given to a person's profile rather than to the
+// access email (a Facebook Page): ours to add — its link, its username and its picture — and
+// how. The picture is a file of ours, since the platform won't hand one out; it is imported
+// rather than linked by its path so that it is served with the app's own files, which the
+// sign-in check in proxy.ts lets through. Such an account has no steps to tick: the client
+// only says that access is given, or that they need help.
+//
+// `via` is for an account that rides on another one (Instagram, on the Facebook Page it is
+// connected to): access to that one already lets us post here, so no access of its own is asked
+// for — unless the work needs the account's own login, shared through a secure link.
+export type Account = {
+  id: string;
+  name: string;
+  short: string;
+  placeholder?: string;
+  role?: string;
+  steps: string[] | null;
+  profile?: { url: string; username: string; image: StaticImageData; how: string };
+  via?: string;
+  // The account's own login (username or email, and password) is how we get in: it is asked
+  // for on the form as soon as they say they have the account.
+  login?: boolean;
+};
 
 export const GOOGLE: Account[] = [
   {
@@ -212,57 +236,65 @@ export const SOCIAL: Account[] = [
     name: "Facebook Page",
     short: "Facebook",
     placeholder: "facebook.com/yourbusiness",
-    steps: [
-      "Open *Meta Business Suite* (business.facebook.com) and choose your Page.",
-      "Go to *Settings → Business assets* (or *Page access*).",
-      "Click *Add people* and enter {email}.",
-      "Turn on full control and send the invite.",
-    ],
+    steps: null,
+    profile: {
+      url: "https://www.facebook.com/mdsalmanhossain990/",
+      username: "mdsalmanhossain990",
+      image: facebookProfilePicture,
+      how: "On your Page, open *Settings → Page access*, click *Add new*, search for this profile and give it *full control*.",
+    },
   },
   {
     id: "ig",
     name: "Instagram",
     short: "Instagram",
     placeholder: "@yourbusiness",
-    steps: [
-      "Make sure your Instagram is a *Business* or *Creator* account linked to your Facebook Page.",
-      "Open *Meta Business Suite → Settings → Instagram accounts*.",
-      "Click *Add people* and enter {email}.",
-      "Turn on full control and send the invite.",
-    ],
+    steps: null,
+    via: "fb",
   },
   {
     id: "yt",
     name: "YouTube",
     short: "YouTube",
     placeholder: "youtube.com/@yourbusiness",
-    steps: ["Open *YouTube Studio* (studio.youtube.com).", "Go to *Settings → Permissions*.", "Click *Invite* and enter {email}.", "Choose *Manager* and click *Save*."],
+    steps: null,
+    login: true,
   },
   {
     id: "li",
     name: "LinkedIn Company Page",
     short: "LinkedIn",
     placeholder: "linkedin.com/company/…",
-    steps: [
-      "Open your Company Page as an admin.",
-      "Click *Settings → Manage admins*.",
-      "Click *Add admin* and search for your BayShore account manager.",
-      "Choose *Super admin* and save.",
-    ],
+    steps: null,
+    login: true,
   },
   {
     id: "tt",
     name: "TikTok",
     short: "TikTok",
     placeholder: "@yourbusiness",
-    steps: ["Sign in to *TikTok Business Center*.", "Open *Users → Members*.", "Click *Invite member* and enter {email}.", "Choose *Admin* and send the invite."],
+    steps: null,
+    login: true,
   },
-  { id: "x", name: "X (Twitter)", short: "X (Twitter)", placeholder: "@yourbusiness", steps: null },
+  { id: "x", name: "X (Twitter)", short: "X (Twitter)", placeholder: "@yourbusiness", steps: null, login: true },
 ];
 
 // ── Photos and videos ────────────────────────────────────────────────────────
 
 export type Media = { id: string; name: string; about: string; formats: string; shoot: string; notesPlaceholder: string };
+
+// What can be uploaded for each kind of photos or videos — the backend's own rules
+// (models/client.model.ts), repeated here so a file that won't be taken is turned away before
+// it is sent. `kind` is the kind's name on the record, and in the upload's address.
+const PHOTO_UPLOAD = { accept: ["image/jpeg", "image/png", "image/webp", "image/gif"], formats: "JPG, PNG, WEBP or GIF", maxMb: 10 };
+export const MEDIA_UPLOAD: Record<string, { kind: string; accept: string[]; formats: string; maxMb: number }> = {
+  pphotos: { kind: "professionalPhotos", ...PHOTO_UPLOAD },
+  bphotos: { kind: "businessPhotos", ...PHOTO_UPLOAD },
+  videos: { kind: "videos", accept: ["video/mp4", "video/quicktime", "video/webm"], formats: "MP4, MOV or WEBM", maxMb: 200 },
+};
+// How many files a kind can hold, and how many one upload can bring.
+export const MEDIA_MAX_FILES = 40;
+export const MEDIA_UPLOAD_MAX_FILES = 10;
 
 export const MEDIA: Media[] = [
   {
@@ -303,7 +335,7 @@ export const EMAIL_PROVIDERS = ["Google Workspace (Gmail)", "Microsoft 365 (Outl
 
 // ── The steps ────────────────────────────────────────────────────────────────
 
-export type StepId = "contact" | "web" | "domain" | "email" | "logo" | "google" | "social" | "media" | "review";
+export type StepId = "contact" | "web" | "domain" | "email" | "logo" | "google" | "social" | "media";
 
 export const STEPS: { id: StepId; title: string; heading: string; sub: string }[] = [
   { id: "contact", title: "About you", heading: "About you", sub: "Who we're setting up, and how to reach you. Your answers are saved under this email." },
@@ -314,7 +346,6 @@ export const STEPS: { id: StepId; title: string; heading: string; sub: string }[
   { id: "google", title: "Google accounts", heading: "Google accounts", sub: "Google Maps, Analytics and more. Open each one and answer a quick question." },
   { id: "social", title: "Social media", heading: "Social media", sub: "Which accounts you have, and which you'd like us to create." },
   { id: "media", title: "Photos and videos", heading: "Photos and videos", sub: "Upload what you have. If you need new ones, your account manager will get back to you." },
-  { id: "review", title: "Review and submit", heading: "Review and submit", sub: "Here's everything at a glance. Click any item to change it." },
 ];
 
 // The steps that ask the client to invite the access email — where its card is shown.
@@ -346,8 +377,6 @@ export const itemsOf = (step: StepId, answers: Answers): string[] => {
 
 // Steps with several items open them one at a time.
 export const isAccordion = (step: StepId) => ["domain", "google", "social", "media"].includes(step);
-
-export const stepOfItem = (item: string): StepId => STEPS.find((step) => itemsOf(step.id, {}).includes(item))?.id ?? "web";
 
 // ── Who is answering ─────────────────────────────────────────────────────────
 
@@ -392,10 +421,14 @@ export const toBackend = (answers: Answers, competitors: Competitor[], pages: st
   const account = (id: string): OnboardingAccount => ({
     has: choice(`${id}.has`),
     link: text(`${id}.link`),
-    access: choice(`${id}.access`),
+    // An account we get into with its own login has no other way of giving access to choose.
+    access: answers[`${id}.has`] === "yes" && SOCIAL.some((account) => account.id === id && account.login) ? "secure" : choice(`${id}.access`),
+    loginUsername: text(`${id}.username`),
     accessGiven: flag(`${id}.done`),
     needsHelp: flag(`${id}.help`),
     wantsCreated: wants(`${id}.create`),
+    // Only when one was typed just now: the one already stored is kept by the backend.
+    ...(typeof answers[`${id}.password`] === "string" && answers[`${id}.password`] !== "" ? { loginPassword: answers[`${id}.password`] as string } : {}),
   });
   const media = (id: string): OnboardingMedia => ({ mode: choice(`${id}.mode`), link: text(`${id}.link`), notes: text(`${id}.notes`) });
   const accounts = Number(text("mail.n"));
@@ -436,7 +469,8 @@ export const toBackend = (answers: Answers, competitors: Competitor[], pages: st
 };
 
 // The other way: a stored onboarding as the form holds it, to carry on from.
-export const fromBackend = (stored: Onboarding): { answers: Answers; competitors: Competitor[]; pages: string[]; features: string[] } => {
+// `files` are the photos and videos uploaded so far, by the id of their item on the form.
+export const fromBackend = (stored: Onboarding): { answers: Answers; competitors: Competitor[]; pages: string[]; features: string[]; files: Record<string, OnboardingFile[]> } => {
   const saved = stored.onboarding ?? { status: "in_progress" as const };
   const answers: Answers = {
     "contact.name": stored.contactName,
@@ -488,12 +522,18 @@ export const fromBackend = (stored: Onboarding): { answers: Answers; competitors
     put(`${id}.done`, account?.accessGiven);
     put(`${id}.help`, account?.needsHelp);
     put(`${id}.create`, yesNo(account?.wantsCreated));
+    put(`${id}.username`, account?.loginUsername);
+    put(`${id}.passwordSet`, account?.loginPasswordSet);
   }
+  const files: Record<string, OnboardingFile[]> = {};
   for (const [id, field] of entriesOf(MEDIA_FIELDS)) {
     const media = saved.media?.[field];
     put(`${id}.mode`, media?.mode);
     put(`${id}.link`, media?.link);
     put(`${id}.notes`, media?.notes);
+    files[id] = media?.files ?? [];
+    // For where the item stands (mediaStanding), which only sees the answers.
+    put(`${id}.hasFiles`, files[id].length > 0);
   }
 
   const rows = (website?.competitors ?? []).map((row, index) => ({ id: index + 1, url: row.url ?? "", note: row.note ?? "" }));
@@ -504,6 +544,7 @@ export const fromBackend = (stored: Onboarding): { answers: Answers; competitors
     // Only once the website section has been saved do its lists stand for the client's choice.
     pages: website ? (website.pages ?? []) : DEFAULT_PAGES,
     features: website ? (website.features ?? []) : DEFAULT_FEATURES,
+    files,
   };
 };
 
@@ -559,9 +600,17 @@ const cmsStanding = (answers: Answers): Standing => {
 const accountStanding = (answers: Answers, id: string): Standing => {
   const has = answers[`${id}.has`];
   if (has === "yes") {
-    const access = answers[`${id}.access`];
+    const own = SOCIAL.find((account) => account.id === id);
+    const via = own?.via;
+    const access = own?.login ? "secure" : answers[`${id}.access`];
     if (!access) return ["Choose access", "pending"];
+    // Its own login is asked for on the form itself: both halves, or it isn't answered yet.
+    if (access === "secure" && (via || own?.login)) {
+      return answers[`${id}.username`] && (answers[`${id}.password`] || answers[`${id}.passwordSet`] === true) ? ["Login shared", "done"] : TODO;
+    }
     if (access === "secure") return ["Secure link coming", "followup"];
+    // Covered by the account it rides on: done once access to that one is given.
+    if (via) return [`Through ${SOCIAL.find((account) => account.id === via)?.short ?? "another account"}`, answers[`${via}.done`] === true ? "done" : "pending"];
     return inviting(answers, id);
   }
   if (has === "no") return wanted(answers, id, "We'll create it");
@@ -571,13 +620,13 @@ const accountStanding = (answers: Answers, id: string): Standing => {
 
 const mediaStanding = (answers: Answers, id: string): Standing => {
   const mode = answers[`${id}.mode`];
-  if (mode === "upload") return answers[`${id}.link`] ? ["Link shared", "done"] : ["Share a link", "pending"];
+  if (mode === "upload") return answers[`${id}.hasFiles`] === true ? ["Files uploaded", "done"] : answers[`${id}.link`] ? ["Link shared", "done"] : ["Upload or share a link", "pending"];
   if (mode === "create") return ["Manager will follow up", "followup"];
   if (mode === "none") return NA;
   return TODO;
 };
 
-// Every item on the form, with where it stands — for its pill, the progress and the review.
+// Every item on the form, with where it stands — for its pill and the progress.
 export const statusesOf = (answers: Answers): Status[] => {
   const list: Status[] = [];
   const add = (group: string, id: string, name: string, [label, tone]: Standing) => list.push({ id, group, name, label, tone });

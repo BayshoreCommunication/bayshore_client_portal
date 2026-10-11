@@ -84,13 +84,6 @@ const SigninForm = () => {
           {pending ? "Signing in…" : "Sign In"}
         </button>
       </form>
-
-      <div className="mt-5 text-center text-[12.5px] text-[#657787]">
-        New to BayShore?{" "}
-        <Link href="/onboarding" className="font-semibold text-[#17242f] underline underline-offset-[3px] hover:text-[#d99136]">
-          Start onboarding
-        </Link>
-      </div>
     </div>
   );
 };
