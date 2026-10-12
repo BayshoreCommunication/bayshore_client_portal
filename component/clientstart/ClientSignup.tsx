@@ -1,19 +1,22 @@
 "use client";
 
-import { Fragment, useEffect, useRef, useState, type InputHTMLAttributes, type ReactNode } from "react";
+import { Fragment, useEffect, useRef, useState, type InputHTMLAttributes, type MouseEvent, type ReactNode } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { AnimatePresence, MotionConfig, motion, type HTMLMotionProps } from "framer-motion";
 import { Eye, EyeOff } from "lucide-react";
-import { signUpAction } from "@/app/actions/auth";
+import { enterPortalAction, saveSignupAnswersAction, signUpAction, type SignupAnswers } from "@/app/actions/auth";
 import { poppins } from "@/component/shared/fonts";
 
-// A new client's way in. First the account: ClientSignup, the front page, on its own. Then,
-// signed in and inside the portal's layout, five short steps — the business, its goals, its
-// website, its online accounts, and booking the kickoff call: ClientOnboarding. Built from the "BayShore Client Onboarding" mockup, and still a mockup in what
-// it does past the first screen: the account is really created (app/actions/auth.ts), but the
-// answers to the five steps are not saved anywhere yet. The call itself is booked on a Google
-// Calendar appointment schedule, shown inside the last step.
+// A new client's way in, all of it on the front page: first the account, then — still on this
+// page, and not signed in — five short steps, one at a time: the business, its goals, its
+// website, its online accounts, and booking the kickoff call. Once those are done they are
+// signed in, with the account they made at the start, and taken to their onboarding form. Each
+// step is saved onto their record as it is finished (app/actions/auth.ts →
+// saveSignupAnswersAction), and all of them once more at the end. Built from the "BayShore Client
+// Onboarding" mockup. The page itself forgets on a reload: the answers already saved stay on the record, but
+// the page starts again from the first screen. The call itself is booked on a Google Calendar
+// appointment schedule, shown inside the last step.
 
 // ── What is asked ────────────────────────────────────────────────────────────
 
@@ -58,6 +61,7 @@ const BLANK_FIELDS = {
   "g-value": "",
   "w-url": "",
   "w-domain": "",
+  "w-registrar": "",
 };
 type FieldId = keyof typeof BLANK_FIELDS;
 
@@ -170,6 +174,13 @@ type Flow = {
   skipAll: () => void;
   back: () => void;
   signUp: () => void;
+  // Saves the steps named onto the client's record — as the answers stand, with `changes`
+  // on top of them where they are only just being made.
+  save: (steps: StepId[], changes?: Partial<State>) => void;
+  // Signs them in with the account they made at the start, and takes them to their onboarding form.
+  enter: () => void;
+  // They are being signed in just now.
+  entering: boolean;
   // The account is being created just now.
   creating: boolean;
   say: (message: string) => void;
@@ -188,6 +199,103 @@ const nextOf = (step: StepId): Screen => STEPS[STEPS.findIndex((entry) => entry.
 const prevOf = (screen: Screen): Screen => {
   const index = STEPS.findIndex((entry) => entry.id === screen);
   return index > 0 ? STEPS[index - 1].id : "business";
+};
+
+// ── The answers as the backend keeps them ───────────────────────────────────
+
+// The form's own words for a choice, against the backend's (models/client.model.ts).
+const REACH_BY: Record<string, string> = { Email: "email", "Phone call": "phone", "Text message": "text" };
+const TIMEFRAME: Record<string, string> = { "3 months": "3_months", "6 months": "6_months", "12 months": "12_months", "Not sure": "unsure" };
+const BUDGET: Record<string, string> = {
+  "Under $1,000": "under_1000",
+  "$1,000–$3,000": "1000_3000",
+  "$3,000–$5,000": "3000_5000",
+  "$5,000–$10,000": "5000_10000",
+  "$10,000+": "over_10000",
+  "Not sure yet": "unsure",
+};
+const LEAD_SOURCE: Record<string, string> = { Referrals: "referrals", "Google search": "google_search", "Google Maps": "google_maps", "Paid ads": "paid_ads", "Social media": "social_media", Other: "other" };
+const HAS: Record<string, string> = { have: "yes", dont: "no", unsure: "unsure" };
+// Where each account's answer goes on the record: the section, and the account's name in it.
+const ACCOUNT_PLACE: Record<string, [section: "google" | "social", name: string]> = {
+  gbp: ["google", "businessProfile"],
+  ga: ["google", "analytics"],
+  gsc: ["google", "searchConsole"],
+  gads: ["google", "ads"],
+  fb: ["social", "facebook"],
+  ig: ["social", "instagram"],
+  x: ["social", "x"],
+  li: ["social", "linkedin"],
+  meta: ["social", "metaAds"],
+};
+
+// What the steps named hold, as sections of the client's onboarding answers (client.onboarding).
+// A step that isn't named sends nothing, so what the record has for it is left as it is.
+const toBackend = (s: State, steps: StepId[]): SignupAnswers => {
+  const text = (id: FieldId) => val(s, id) || undefined;
+  const number = (id: FieldId) => (val(s, id) === "" ? undefined : +val(s, id));
+  const answers: Record<string, unknown> = {};
+
+  if (steps.includes("business")) {
+    answers.business = {
+      description: text("b-desc"),
+      services: s.services,
+      areas: s.areas,
+      contact: {
+        isAccountOwner: s.me,
+        name: text("b-cname"),
+        email: text("b-cemail"),
+        // Without the formatting, as the backend stores it.
+        phone: val(s, "b-phone").replace(/[\s\-().]/g, "") || undefined,
+        reachBy: REACH_BY[s.pick["b-reach"] ?? ""],
+      },
+    };
+  }
+  if (steps.includes("goals")) {
+    answers.goals = {
+      revenue: { current: number("g-crev"), goal: number("g-grev") },
+      leads: { current: number("g-cleads"), goal: number("g-gleads") },
+      newClients: { current: number("g-csales"), goal: number("g-gsales") },
+      timeframe: TIMEFRAME[s.pick["g-time"] ?? ""],
+      budget: BUDGET[s.pick["g-budget"] ?? ""],
+      costPerLead: number("g-cpl"),
+      clientValue: number("g-value"),
+      leadSources: s.sources.map((source) => LEAD_SOURCE[source]).filter(Boolean),
+    };
+  }
+  if (steps.includes("website")) {
+    if (s.pick["w-has"] === "yes") {
+      // Keeping the site as it is means no new one is needed.
+      answers.website = { url: text("w-url"), need: { keep: "no", redesign: "redesign", unsure: "unsure" }[s.pick["w-plan"] ?? ""] };
+    } else if (s.pick["w-has"] === "no") {
+      const build = s.pick["w-build"] === "yes";
+      answers.website = { hasNone: true, need: build ? "new" : s.pick["w-build"] === "no" ? "no" : undefined };
+      // A domain is only asked about when we are to build the website.
+      if (build && s.pick["w-dom"]) {
+        const owns = s.pick["w-dom"] === "yes";
+        answers.domain = { has: s.pick["w-dom"], name: owns ? text("w-domain") : undefined, platform: owns ? text("w-registrar") : undefined };
+      }
+    }
+  }
+  if (steps.includes("accounts")) {
+    const sections: Record<"google" | "social", Record<string, unknown>> = { google: {}, social: {} };
+    for (const acct of ACCTS) {
+      const answer = s.accts[acct.key];
+      if (!answer) continue;
+      const [section, name] = ACCOUNT_PLACE[acct.key];
+      sections[section][name] = {
+        has: HAS[answer],
+        link: answer === "have" ? s.links[acct.key]?.trim() || undefined : undefined,
+        wantsCreated: isMissing(answer) && s.setup[acct.key] ? s.setup[acct.key] === "yes" : undefined,
+      };
+    }
+    answers.google = sections.google;
+    answers.social = sections.social;
+  }
+  if (steps.includes("book")) answers.kickoffCall = { booked: s.booked };
+
+  // The business's name is the client's own company name.
+  return { ...(steps.includes("business") && val(s, "b-name") ? { companyName: val(s, "b-name") } : {}), answers };
 };
 
 // ── What is wrong with a screen's answers, by field ──────────────────────────
@@ -247,8 +355,14 @@ const CHECKS: Record<FormStep, (s: State) => Errors> = {
     }
     if (has === "no") {
       if (!s.pick["w-build"]) problems["w-build"] = "Choose one option.";
-      if (!s.pick["w-dom"]) problems["w-domain"] = "Let us know if you own a domain.";
-      else if (s.pick["w-dom"] === "yes" && !val(s, "w-domain")) problems["w-domain"] = "Enter your domain, like yourfirm.com.";
+      // A domain is only asked about when we are to build the website.
+      if (s.pick["w-build"] === "yes") {
+        if (!s.pick["w-dom"]) problems["w-dom"] = "Let us know if you own a domain.";
+        else if (s.pick["w-dom"] === "yes") {
+          if (!val(s, "w-domain")) problems["w-domain"] = "Enter your domain, like yourfirm.com.";
+          if (!val(s, "w-registrar")) problems["w-registrar"] = "Tell us where it is registered, like GoDaddy.";
+        }
+      }
     }
     return problems;
   },
@@ -257,7 +371,11 @@ const CHECKS: Record<FormStep, (s: State) => Errors> = {
 
 // ── Looks ────────────────────────────────────────────────────────────────────
 
+// The page keeps to the mockup's widths: the bar, the steps and each screen are held to 1080px
+// in the middle of the window, and the card the account is created in to 960px.
+const widthClass = "mx-auto w-full max-w-270";
 const cardClass = "rounded-2xl border border-[#e1e7e3] bg-white shadow-[0_1px_2px_rgba(22,33,42,0.04),0_6px_20px_rgba(22,33,42,0.05)]";
+const titleClass = "text-[clamp(22px,3.4vw,29px)] leading-[1.2] font-semibold tracking-[-0.2px] text-balance";
 const focusRing = "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#b8892f]";
 // The same ring drawn inside the button, for buttons whose container would cut it off.
 const focusRingInside = "focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-[#b8892f]";
@@ -270,7 +388,8 @@ const helpClass = "text-[12.5px] text-[#5b6a72]";
 const capsClass = "text-[12px] font-semibold tracking-[1.3px] text-[#5b6a72] uppercase";
 const linkButton = `cursor-pointer text-[13px] text-[#5b6a72] underline ${focusRing}`;
 const layoutClass = "grid grid-cols-[minmax(0,1fr)_290px] items-start gap-6 max-[900px]:grid-cols-1";
-const railClass = "sticky top-6 flex flex-col gap-3.5 max-[900px]:static max-[900px]:grid max-[900px]:grid-cols-[repeat(auto-fit,minmax(220px,1fr))]";
+// Stays in view under the page's own header, which is stuck to the top of the window.
+const railClass = "sticky top-23 flex flex-col gap-3.5 max-[900px]:static max-[900px]:grid max-[900px]:grid-cols-[repeat(auto-fit,minmax(220px,1fr))]";
 const sectionClass = "flex flex-col gap-4 px-6.5 py-6 max-[700px]:px-4.5";
 const gridClass = "grid grid-cols-2 gap-x-4.5 gap-y-4 max-[700px]:grid-cols-1";
 
@@ -368,10 +487,10 @@ const Icon = ({ name, className = "size-4.5" }: { name: IconName; className?: st
   </svg>
 );
 
-// The name, as the way back to the front page. This flow is the front page, so a link alone
-// would change nothing mid-way: `onHome` is what takes it back to its first screen.
-const Logo = ({ large = false, onHome }: { large?: boolean; onHome?: () => void }) => (
-  <Link href="/" onClick={onHome} className={`block font-serif leading-none font-bold text-white no-underline ${large ? "text-[28px]" : "text-[22px]"} ${focusRing}`}>
+// The name, as the way back to the front page. This flow is the front page, so mid-way
+// `onHome` is there to stop the link: it would only start the flow again.
+const Logo = ({ large = false, onHome }: { large?: boolean; onHome?: (event: MouseEvent<HTMLAnchorElement>) => void }) => (
+  <Link href="/" onClick={onHome} className={`block self-start font-serif leading-none font-bold text-white no-underline ${large ? "text-[28px]" : "text-[22px]"} ${focusRing}`}>
     BayShore
     <small className={`${poppins.className} mt-1.25 block text-[9px] font-medium tracking-[2.4px] text-[#a3b3bc] uppercase`}>Client&apos;s Portal</small>
   </Link>
@@ -605,7 +724,7 @@ const Head = ({ eyebrow, title, action, children }: { eyebrow: string; title: Re
   <div className="mb-5.5 flex items-end justify-between gap-4">
     <div className="max-w-170 min-w-0">
       <p className="mb-1.5 text-[11px] font-semibold tracking-[1.6px] text-[#7a5a17] uppercase">{eyebrow}</p>
-      <h1 className="mb-2 text-[clamp(22px,3.4vw,29px)] leading-[1.2] font-semibold tracking-[-0.2px] text-balance">{title}</h1>
+      <h1 className={`${titleClass} mb-2`}>{title}</h1>
       {children ? <p className="max-w-[62ch] text-[14.5px] text-[#5b6a72]">{children}</p> : null}
     </div>
     {action ? <div className="mb-2 flex-none">{action}</div> : null}
@@ -642,8 +761,6 @@ const Tip = ({ icon, title, children }: { icon: IconName; title: string; childre
   </div>
 );
 
-const Avatar = () => <div className="grid size-10 flex-none place-items-center rounded-full bg-[#16212a] text-[13px] font-semibold text-white">SM</div>;
-
 // Back on the left; skip and continue on the right.
 const Foot = ({ flow, step, first = false }: { flow: Flow; step: FormStep; first?: boolean }) => (
   <div className="mt-5 flex flex-wrap items-center justify-between gap-3">
@@ -677,6 +794,7 @@ const SignupScreen = ({ flow }: { flow: Flow }) => {
   ];
 
   return (
+    // One card in the middle of the page: the steps ahead on the navy half, the form on the other.
     <div className={`${cardClass} mx-auto grid max-w-240 grid-cols-2 overflow-hidden max-[700px]:grid-cols-1`}>
       <div className="flex flex-col gap-6 bg-[#16212a] px-8.5 py-9 text-white max-[700px]:px-5.5 max-[700px]:py-6.5">
         <Logo large />
@@ -699,7 +817,7 @@ const SignupScreen = ({ flow }: { flow: Flow }) => {
       </div>
 
       <div className="px-8.5 py-9 max-[700px]:px-5.5 max-[700px]:py-6.5">
-        <h1 className="mb-2 text-[clamp(22px,3.4vw,29px)] leading-[1.2] font-semibold tracking-[-0.2px] text-balance">Welcome to BayShore</h1>
+        <h1 className={`${titleClass} mb-2`}>Welcome to BayShore</h1>
         <p className="mb-5.5 max-w-[62ch] text-[14.5px] text-[#5b6a72]">Create your account to get started. It takes about 5 minutes to set up.</p>
         <form
           noValidate
@@ -985,14 +1103,6 @@ const BusinessStep = ({ flow }: { flow: Flow }) => {
             <SoFar label="Reach by" on={part === "contact"}>
               {reach ?? "—"}
             </SoFar>
-          </div>
-
-          <div className={`${cardClass} flex items-center gap-3 px-4.5 py-4`}>
-            <Avatar />
-            <div>
-              <b>Sarah Mitchell</b>
-              <small className="block text-[12px] text-[#5b6a72]">Your account manager</small>
-            </div>
           </div>
         </aside>
       </div>
@@ -1305,30 +1415,25 @@ const WebsiteStep = ({ flow }: { flow: Flow }) => {
                       <Choice icon="clock" title="Not right now" note="We can talk about it later" pressed={pick["w-build"] === "no"} onClick={() => flow.setPick("w-build", "no")} />
                     </Cards>
                   </Field>
-                  <Field error={errors["w-domain"]}>
-                    <span className={labelClass}>Do you own a domain name?</span>
-                    <div className="flex flex-wrap items-center gap-2.5">
-                      <Seg options={YES_NO} value={pick["w-dom"]} onPick={(value) => flow.setPick("w-dom", value)} label="Do you own a domain name?" />
-                      <AnimatePresence initial={false}>
-                        {pick["w-dom"] === "yes" ? (
-                          <motion.input
-                            key="domain"
-                            id="w-domain"
-                            type="text"
-                            placeholder="yourfirm.com"
-                            aria-label="Your domain"
-                            initial={{ opacity: 0, x: -8 }}
-                            animate={{ opacity: 1, x: 0 }}
-                            exit={{ opacity: 0, x: -8 }}
-                            transition={{ duration: 0.18 }}
-                            className={`${inputClass} max-w-65`}
-                            value={s.f["w-domain"]}
-                            onChange={(event) => flow.setField("w-domain", event.target.value)}
-                          />
-                        ) : null}
-                      </AnimatePresence>
+                  {/* Only when we are to build the website: whether they have a domain for it, and —
+                      if they do — its name and where it is registered. */}
+                  <Reveal open={pick["w-build"] === "yes"} className="-m-1 p-1">
+                    <div className="flex flex-col gap-4.5">
+                      <Field error={errors["w-dom"]}>
+                        <span className={labelClass}>Do you own a domain name?</span>
+                        {/* In a block of its own: straight in the field's column it would be stretched to the full width. */}
+                        <div>
+                          <Seg options={YES_NO} value={pick["w-dom"]} onPick={(value) => flow.setPick("w-dom", value)} label="Do you own a domain name?" />
+                        </div>
+                      </Field>
+                      <Reveal open={pick["w-dom"] === "yes"} className="-m-1 p-1">
+                        <div className={gridClass}>
+                          <TextField flow={flow} id="w-domain" label="Your domain name" placeholder="yourfirm.com" />
+                          <TextField flow={flow} id="w-registrar" label="Where is it registered?" placeholder="e.g. GoDaddy, Namecheap" />
+                        </div>
+                      </Reveal>
                     </div>
-                  </Field>
+                  </Reveal>
                 </div>
               </Reveal>
             </div>
@@ -1550,7 +1655,7 @@ const Summary = ({ flow }: { flow: Flow }) => {
       website && pick["w-has"] === "no" ? (
         <p>
           {pick["w-build"] === "yes" ? "New build" : "No website for now"}
-          {pick["w-dom"] === "yes" && val(s, "w-domain") ? ` · ${val(s, "w-domain")}` : ""}
+          {pick["w-build"] === "yes" && pick["w-dom"] === "yes" && val(s, "w-domain") ? ` · ${val(s, "w-domain")}${val(s, "w-registrar") ? ` (${val(s, "w-registrar")})` : ""}` : ""}
         </p>
       ) : website && pick["w-has"] === "yes" && pick["w-plan"] ? (
         <p>
@@ -1587,12 +1692,12 @@ const Summary = ({ flow }: { flow: Flow }) => {
 
 const BookStep = ({ flow }: { flow: Flow }) => {
   const { s } = flow;
-  const router = useRouter();
   const [loaded, setLoaded] = useState(false);
 
   // Google's calendar can't say when a time has been booked, so the client says so.
   const confirm = () => {
     flow.patch((now) => ({ booked: true, done: withStep(now.done, "book") }));
+    flow.save(["book"], { booked: true });
     flow.say("Your account manager was notified with your full summary.");
   };
 
@@ -1617,8 +1722,16 @@ const BookStep = ({ flow }: { flow: Flow }) => {
                   </svg>
                 </motion.div>
                 <h2 className="mb-1.5 text-[19px] font-semibold">You&apos;re booked.</h2>
-                <p className="mb-4.5 text-[#5b6a72]">A calendar invite is on its way to your inbox.</p>
-                <Btn onClick={() => router.push("/dashboard")}>Go to my dashboard</Btn>
+                <p className="mx-auto mb-5 max-w-90 text-[#5b6a72]">A calendar invite is on its way to your inbox. Next is your onboarding form — we&apos;ll sign you in and take you there.</p>
+                <Btn onClick={flow.enter} disabled={flow.entering} aria-busy={flow.entering} className="disabled:cursor-wait disabled:opacity-70">
+                  {flow.entering ? (
+                    "Signing you in…"
+                  ) : (
+                    <>
+                      Continue to onboarding <Icon name="arrow" className="size-4" />
+                    </>
+                  )}
+                </Btn>
               </motion.div>
             ) : (
               <motion.div key="calendar" exit={{ opacity: 0 }} transition={{ duration: 0.15 }}>
@@ -1667,12 +1780,13 @@ const BookStep = ({ flow }: { flow: Flow }) => {
               <button
                 type="button"
                 className={linkButton}
+                disabled={flow.entering}
                 onClick={() => {
                   flow.patch({ booked: false });
-                  router.push("/dashboard");
+                  flow.enter();
                 }}
               >
-                I&apos;ll book later
+                {flow.entering ? "Signing you in…" : "I\u2019ll book later"}
               </button>
               <Btn onClick={confirm}>I&apos;ve booked my call</Btn>
             </>
@@ -1691,7 +1805,12 @@ const useFlow = (initial: State) => {
   const [errors, setErrors] = useState<Errors>({});
   const [toast, setToast] = useState<Toast | null>(null);
   const [creating, setCreating] = useState(false);
+  const [entering, setEntering] = useState(false);
   const root = useRef<HTMLDivElement>(null);
+  const router = useRouter();
+  // The password the account was made with, kept — on this page only, and out of the answers —
+  // to sign them in with once the steps are done.
+  const password = useRef("");
 
   // Each message gets the next number, so saying the same thing twice shows it afresh.
   const say = (message: string) => setToast((last) => ({ id: (last?.id ?? 0) + 1, message }));
@@ -1714,13 +1833,6 @@ const useFlow = (initial: State) => {
     window.scrollTo({ top: 0 });
   };
 
-  // Back to how it first opened, with nothing filled in.
-  const reset = () => {
-    setS(initial);
-    setErrors({});
-    window.scrollTo({ top: 0 });
-  };
-
   // Shows what is wrong and puts the cursor on the first of it.
   const fail = (problems: Errors) => {
     setErrors(problems);
@@ -1731,9 +1843,9 @@ const useFlow = (initial: State) => {
     });
   };
 
-  // Creates the account and signs them in; from there they are sent on to the steps, inside
-  // the portal (app/actions/auth.ts). Why it couldn't be done — the email already has an
-  // account, say — is shown above the button.
+  // Creates the account (app/actions/auth.ts) — without signing them in — then goes on to the
+  // steps, here on the same page. Why it couldn't be done — the email already has an account, say —
+  // is shown above the button.
   const signUp = async () => {
     if (creating) return;
     const problems = checkSignup(s);
@@ -1747,11 +1859,17 @@ const useFlow = (initial: State) => {
       // Without the formatting, as the backend stores it.
       phone: val(s, "su-phone").replace(/[\s\-().]/g, ""),
       password: s.f["su-pw"],
+      termsAccepted: s.terms,
     });
-    // It only comes back when something went wrong: otherwise the page has moved on.
     setCreating(false);
     // What was wrong with each field says more than the "validation failed" above it.
-    if (result && !result.ok) setErrors({ "su-form": (result.fieldErrors?.length ? result.fieldErrors : [result.error]).join(" ") });
+    if (!result.ok) return setErrors({ "su-form": (result.fieldErrors?.length ? result.fieldErrors : [result.error]).join(" ") });
+
+    // Whoever signed up is the main contact until they name someone else. The password has
+    // done its work, so it isn't kept.
+    password.current = s.f["su-pw"];
+    patch((now) => ({ f: { ...now.f, "su-pw": "", "b-cname": val(now, "su-name"), "b-cemail": val(now, "su-email"), "b-phone": val(now, "su-phone") } }));
+    go("business");
   };
 
   const next = (step: FormStep) => {
@@ -1767,6 +1885,7 @@ const useFlow = (initial: State) => {
     }
 
     patch(changes);
+    save([step]);
     go(nextOf(step));
   };
 
@@ -1789,8 +1908,57 @@ const useFlow = (initial: State) => {
     go("book");
   };
 
-  const flow: Flow = { s, errors, patch, setField, setPick, go, next, skip, skipAll, back: () => go(prevOf(s.screen)), signUp, creating, say };
-  return { flow, root, toast, reset };
+  // Saves steps onto the client's record, one save at a time and in the order asked. A step
+  // that couldn't be saved goes again with the next save, and with the last one before they
+  // are signed in (see `enter`) — so a hiccup on the way doesn't lose an answer.
+  const saving = useRef<Promise<{ ok: boolean; error?: string }>>(Promise.resolve({ ok: true }));
+  const unsaved = useRef(new Set<StepId>());
+  const send = (steps: StepId[], state: State) => {
+    const run = async () => {
+      // Without the password (the page was left and come back to) there is nothing to save with.
+      if (!password.current) return { ok: false, error: "Your answers couldn't be saved. Please log in and fill them in again." };
+      const all = [...new Set([...unsaved.current, ...steps])];
+      const result = await saveSignupAnswersAction(val(state, "su-email"), password.current, toBackend(state, all));
+      if (result.ok) unsaved.current.clear();
+      else for (const step of all) unsaved.current.add(step);
+      return result;
+    };
+    saving.current = saving.current.then(run, run);
+    return saving.current;
+  };
+  const save = (steps: StepId[], changes: Partial<State> = {}) => {
+    void send(steps, { ...s, ...changes }).then((result) => {
+      if (!result.ok) say("Couldn't save that step yet — we'll try again as you go.");
+    });
+  };
+
+  // At the end of the steps: signs them in and takes them to their onboarding form. Without
+  // the password (it is only held while this page stays open), or if that fails, they log in
+  // themselves — and land on the same form.
+  const enter = async () => {
+    if (entering) return;
+    const logIn = () => router.push("/sign-in?callbackUrl=/onboarding");
+    if (!password.current) return logIn();
+    setEntering(true);
+    // Everything answered goes onto their record once more first — the steps not skipped, and
+    // whether the call was booked — so nothing is left behind on this page.
+    const answered = STEPS.map((step) => step.id).filter((id) => id === "book" || (s.done.includes(id) && !s.skipped.includes(id)));
+    const saved = await send(answered, s);
+    if (!saved.ok) {
+      setEntering(false);
+      return say(saved.error ?? "Couldn't save your answers. Please try again.");
+    }
+    const result = await enterPortalAction(val(s, "su-email"), password.current);
+    // It only comes back when it couldn't sign them in.
+    setEntering(false);
+    if (result?.error) {
+      say(result.error);
+      logIn();
+    }
+  };
+
+  const flow: Flow = { s, errors, patch, setField, setPick, go, next, skip, skipAll, back: () => go(prevOf(s.screen)), signUp, save, enter, entering, creating, say };
+  return { flow, root, toast };
 };
 
 type Toast = { id: number; message: string };
@@ -1816,10 +1984,11 @@ const ToastMessage = ({ toast }: { toast: Toast | null }) => (
   </div>
 );
 
-// The five steps in a row: where the client is, what is done or skipped, and the way back to those.
+// The five steps in a row, in a white bar under the header: where the client is, what is done or
+// skipped, and the way back to those.
 const StepsProgress = ({ s, go }: { s: State; go: (screen: Screen) => void }) => (
-  <nav aria-label="Onboarding progress" className={`${cardClass} mb-6 overflow-hidden px-4`}>
-    <ol className="grid grid-cols-5 gap-2">
+  <nav aria-label="Onboarding progress" className="border-b border-[#e1e7e3] bg-white px-4">
+    <ol className={`${widthClass} grid grid-cols-5 gap-2`}>
       {STEPS.map((step, index) => {
         const current = step.id === s.screen;
         const skipped = s.skipped.includes(step.id);
@@ -1858,22 +2027,34 @@ const StepsProgress = ({ s, go }: { s: State; go: (screen: Screen) => void }) =>
 
 const rootClass = `${poppins.className} text-[14px] leading-[1.55] text-[#1a252c] [&_b]:font-semibold [&_strong]:font-semibold`;
 
-// The front page: creating the account. It has the window to itself — nobody is signed in
-// yet, so there is no portal around it.
+// The front page: creating the account, and then the five steps, one at a time. It has the
+// window to itself the whole way — no portal around it, and nobody signed in: the account is
+// made on the first screen, and logged in to once the steps are done.
 const ClientSignup = () => {
-  const { flow, root, toast, reset } = useFlow(BLANK);
+  const { flow, root, toast } = useFlow(BLANK);
+  const { s } = flow;
+  const stepIndex = STEPS.findIndex((step) => step.id === s.screen);
+  const minutesLeft = Math.ceil(STEPS.slice(Math.max(stepIndex, 0)).reduce((sum, step) => sum + step.minutes, 0));
 
   return (
     <MotionConfig reducedMotion="user">
       <div ref={root} className={`${rootClass} min-h-screen w-full bg-[#f2f5f3]`}>
         <header className="sticky top-0 z-20 bg-[#16212a] px-4 py-3.5 text-white">
-          <div className="mx-auto flex max-w-270 flex-wrap items-center justify-between gap-3">
-            <Logo onHome={reset} />
+          <div className={`${widthClass} flex flex-wrap items-center justify-between gap-3`}>
+            {/* Mid-way the link stays put: going back to the first screen would throw the answers away. */}
+            <Logo onHome={stepIndex >= 0 ? (event) => event.preventDefault() : undefined} />
             <div className="flex items-center gap-3 text-[13px] text-[#a3b3bc]">
-              <span className="max-[700px]:hidden">Already have an account?</span>
+              {stepIndex >= 0 ? (
+                <span className="max-[700px]:hidden">
+                  Step {stepIndex + 1} of 5 · about {minutesLeft} min left
+                </span>
+              ) : (
+                // Creating the account: the way in for someone who already has one.
+                <span>Already have an account?</span>
+              )}
               <Link
                 href="/sign-in"
-                className={`rounded-[9px] border border-[#2d3f4b] px-3.5 py-1.5 text-[12.5px] font-medium text-white no-underline transition-colors duration-150 hover:border-[#b8892f] hover:text-[#e7c780] ${focusRing}`}
+                className={`rounded-lg border border-[#2d3f4b] px-3.5 py-1.5 text-[12.5px] font-medium text-white no-underline transition-colors duration-150 hover:border-[#b8892f] hover:text-[#b8892f] ${focusRing}`}
               >
                 Log in
               </Link>
@@ -1881,37 +2062,12 @@ const ClientSignup = () => {
           </div>
         </header>
 
+        {stepIndex >= 0 ? <StepsProgress s={s} go={flow.go} /> : null}
+
         <main className="px-4 pt-8 pb-10">
-          <motion.section initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.2, ease: "easeOut" }} className="mx-auto max-w-270">
-            <SignupScreen flow={flow} />
-          </motion.section>
-        </main>
-
-        <ToastMessage toast={toast} />
-      </div>
-    </MotionConfig>
-  );
-};
-
-// The five steps, for a client who has just made their account. They are signed in by now, so
-// this sits inside the portal's own layout — its sidebar and top bar — like every other page
-// there (app/(main)/get-started). `account` is who is signed in: the main contact, unless they
-// name someone else.
-export const ClientOnboarding = ({ account }: { account: { name: string; email: string } }) => {
-  const { flow, root, toast } = useFlow({
-    ...BLANK,
-    screen: "business",
-    f: { ...BLANK_FIELDS, "su-name": account.name, "su-email": account.email, "b-cname": account.name, "b-cemail": account.email },
-  });
-  const { s } = flow;
-
-  return (
-    <MotionConfig reducedMotion="user">
-      <div ref={root} className={rootClass}>
-        <div className="mx-auto w-full max-w-270">
-          <StepsProgress s={s} go={flow.go} />
           <AnimatePresence mode="wait">
-            <motion.section key={s.screen} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -6 }} transition={{ duration: 0.2, ease: "easeOut" }}>
+            <motion.section key={s.screen} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -6 }} transition={{ duration: 0.2, ease: "easeOut" }} className={widthClass}>
+              {s.screen === "signup" ? <SignupScreen flow={flow} /> : null}
               {s.screen === "business" ? <BusinessStep flow={flow} /> : null}
               {s.screen === "goals" ? <GoalsStep flow={flow} /> : null}
               {s.screen === "website" ? <WebsiteStep flow={flow} /> : null}
@@ -1919,7 +2075,7 @@ export const ClientOnboarding = ({ account }: { account: { name: string; email: 
               {s.screen === "book" ? <BookStep flow={flow} /> : null}
             </motion.section>
           </AnimatePresence>
-        </div>
+        </main>
 
         <ToastMessage toast={toast} />
       </div>

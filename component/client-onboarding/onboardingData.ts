@@ -7,7 +7,7 @@ import type { Onboarding, OnboardingAccount, OnboardingAnswers, OnboardingFile, 
 // touching how they are drawn.
 
 // The address clients invite to their accounts. Change it to the team's access email.
-export const AGENCY_EMAIL = "access@bayshorecommunication.org";
+export const AGENCY_EMAIL = "info.bayshorecommunication@gmail.com";
 
 // ── Answers ──────────────────────────────────────────────────────────────────
 
@@ -291,6 +291,8 @@ export const MEDIA_UPLOAD: Record<string, { kind: string; accept: string[]; form
   pphotos: { kind: "professionalPhotos", ...PHOTO_UPLOAD },
   bphotos: { kind: "businessPhotos", ...PHOTO_UPLOAD },
   videos: { kind: "videos", accept: ["video/mp4", "video/quicktime", "video/webm"], formats: "MP4, MOV or WEBM", maxMb: 200 },
+  // The logo is uploaded the same way, and kept with the logo's own answers.
+  logo: { kind: "logo", accept: [...PHOTO_UPLOAD.accept, "image/svg+xml"], formats: "PNG, JPG, WEBP, GIF or SVG", maxMb: 10 },
 };
 // How many files a kind can hold, and how many one upload can bring.
 export const MEDIA_MAX_FILES = 40;
@@ -525,7 +527,9 @@ export const fromBackend = (stored: Onboarding): { answers: Answers; competitors
     put(`${id}.username`, account?.loginUsername);
     put(`${id}.passwordSet`, account?.loginPasswordSet);
   }
-  const files: Record<string, OnboardingFile[]> = {};
+  // The logo's files, with the photos and videos: all uploaded the same way.
+  const files: Record<string, OnboardingFile[]> = { logo: logo?.files ?? [] };
+  put("logo.hasFiles", files.logo.length > 0);
   for (const [id, field] of entriesOf(MEDIA_FIELDS)) {
     const media = saved.media?.[field];
     put(`${id}.mode`, media?.mode);
@@ -547,9 +551,6 @@ export const fromBackend = (stored: Onboarding): { answers: Answers; competitors
     files,
   };
 };
-
-// The items whose access was given by ticking off every step — so the steps show ticked again.
-export const accessGivenIds = (answers: Answers) => Object.keys(answers).filter((key) => key.endsWith(".done") && answers[key] === true).map((key) => key.slice(0, -".done".length));
 
 // ── Where each item stands ───────────────────────────────────────────────────
 
@@ -652,7 +653,15 @@ export const statusesOf = (answers: Answers): Status[] => {
     "Logo",
     "logo",
     "Logo",
-    logo === "yes" ? (answers["logo.link"] ? ["Link shared", "done"] : ["Share your logo", "pending"]) : logo === "no" ? wanted(answers, "logo", "We'll design it") : TODO,
+    logo === "yes"
+      ? answers["logo.hasFiles"] === true
+        ? ["Logo uploaded", "done"]
+        : answers["logo.link"]
+          ? ["Link shared", "done"]
+          : ["Share your logo", "pending"]
+      : logo === "no"
+        ? wanted(answers, "logo", "We'll design it")
+        : TODO,
   );
 
   for (const account of GOOGLE) add("Google", account.id, account.short, accountStanding(answers, account.id));

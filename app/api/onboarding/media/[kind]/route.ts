@@ -1,18 +1,18 @@
 import { auth } from "@/auth";
 import { BACKEND_API_URL } from "@/lib/backend";
 
-// The photos and videos a signed-in client uploads with their onboarding, passed on to the
+// The photos and videos — and the logo — a signed-in client uploads with their onboarding, passed on to the
 // backend's /onboarding/me/media routes (which send them to DigitalOcean Spaces). Route
 // handlers rather than server actions because actions cap request bodies at 1MB; the upload is
 // streamed through, never held in memory here. The backend checks everything: the kind, the
 // file types, sizes and count.
 
-const KINDS = ["professionalPhotos", "businessPhotos", "videos"];
+const KINDS = ["professionalPhotos", "businessPhotos", "videos", "logo"];
 
 type Context = { params: Promise<{ kind: string }> };
 
 async function send(kind: string, init: (accessToken: string) => RequestInit) {
-  if (!KINDS.includes(kind)) return Response.json({ success: false, message: "Unknown kind of photos or videos." }, { status: 404 });
+  if (!KINDS.includes(kind)) return Response.json({ success: false, message: "Unknown kind of upload." }, { status: 404 });
 
   const session = await auth();
   if (!session?.accessToken) return Response.json({ success: false, message: "Your session has ended — sign in again." }, { status: 401 });

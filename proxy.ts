@@ -213,12 +213,16 @@ export default async function proxy(req: NextRequest) {
     return persistCookie(NextResponse.redirect(new URL("/dashboard", req.nextUrl)));
   }
 
+  // Tell the page being rendered which path it is for: a layout can't see that on its own, and
+  // app/(main)/layout.tsx needs it to turn a client away from a page they aren't shown.
+  const requestHeaders = new Headers(req.headers);
+  requestHeaders.set("x-pathname", req.nextUrl.pathname);
+
   if (!refreshedCookieValue) {
-    return NextResponse.next();
+    return NextResponse.next({ request: { headers: requestHeaders } });
   }
 
   // Forward the rotated cookie into THIS request's downstream render...
-  const requestHeaders = new Headers(req.headers);
   const remainingCookies = (requestHeaders.get("cookie") ?? "")
     .split("; ")
     .filter((part) => part && !part.startsWith(`${cookieName}=`));
