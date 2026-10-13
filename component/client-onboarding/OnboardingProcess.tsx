@@ -13,7 +13,9 @@ import {
   DEFAULT_FEATURES,
   DEFAULT_PAGES,
   EMAIL_PROVIDERS,
+  DEFAULT_NOT_NEEDED,
   EMAIL_STEPS,
+  controlIdOf,
   FEATURE_CHOICES,
   GOOGLE,
   MAX_COMPETITORS,
@@ -68,6 +70,17 @@ const PILL: Record<Tone, string> = {
   pending: "bg-[#fef3c7] text-[#b45309]",
   create: "bg-[#e8effd] text-[#2f5fd8]",
   followup: "bg-[#f1ebfe] text-[#6d28d9]",
+};
+
+// Where a step stands, in the colors of the team's own map of the onboarding (company-portal:
+// OnboardingControls): each with how its number is drawn, and what that means to the client.
+type StepStanding = "approved" | "filled" | "help" | "wait";
+const STEP_STANDINGS: StepStanding[] = ["approved", "filled", "help", "wait"];
+const STEP_DOTS: Record<StepStanding, [dot: string, meaning: string]> = {
+  approved: ["border-[#16A34A] bg-[#16A34A] text-white", "Approved"],
+  filled: ["border-[#16A34A] bg-white text-[#15803D]", "Answered, in review"],
+  help: ["border-[#7C3AED] bg-[#7C3AED] text-white", "We\u2019re helping"],
+  wait: ["border-[#D97706] bg-[#D97706] text-white", "Waiting on you"],
 };
 
 const NOTE = {
@@ -718,6 +731,16 @@ const LogoItem = ({ form }: { form: Form }) => {
             value={text(form.answers, "logo.style")}
             onChange={(event) => form.set("logo.style", event.target.value)}
           />
+          {/* Easier shown than said: logos they like, their colors, a sketch. */}
+          {form.canUpload ? (
+            <>
+              <p className={questionClass}>
+                Attach files <span className="font-normal text-[#6b7280]">(optional)</span>
+              </p>
+              <MediaUpload form={form} media={{ id: "logoStyle" }} />
+              <div className={`${hintClass} mt-1.5`}>Logos you like, your colors, a sketch — anything that shows the style you have in mind.</div>
+            </>
+          ) : null}
         </Collapse>
       </Reveal>
     </>
@@ -827,7 +850,7 @@ const LoginFields = ({ form, account }: { form: Form; account: Account }) => {
   return (
     <>
       <div className="grid gap-x-3.5 sm:grid-cols-2">
-        <Field form={form} id={`${id}-username`} name={`${id}.username`} label={`${account.short} username or email`} placeholder="you@yourbusiness.com" autoComplete="off" />
+        <Field form={form} id={`${id}-username`} name={`${id}.username`} label={account.loginLabel ?? `${account.short} username or email`} placeholder="you@yourbusiness.com" autoComplete="off" />
         <Field
           form={form}
           id={`${id}-password`}
@@ -857,7 +880,21 @@ const LinkedAccess = ({ form, account, via }: { form: Form; account: Account; vi
 
   return (
     <>
-      <p className={account.placeholder ? questionClass : firstQuestionClass}>What do you need us to do on {account.short}?</p>
+      {/* Only a box to tick: whether the two are connected already is all it asks. */}
+      <label className="mt-3 flex cursor-pointer items-center gap-2 text-[12.5px] font-medium text-[#374151]">
+        <input
+          type="checkbox"
+          checked={form.answers[`${id}.connected`] === true}
+          className="h-4 w-4 accent-[#2f5fd8]"
+          onChange={(event) =>
+            // Connected already, posting needs nothing more: ticking it picks "Just post for me" —
+            // which gives the login up, as picking it by hand does. The other choice is still theirs to make.
+            form.patch(event.target.checked ? { [`${id}.connected`]: true, [`${id}.access`]: "invite", [`${id}.password`]: "", [`${id}.passwordSet`]: false } : { [`${id}.connected`]: false })
+          }
+        />
+        My {account.short} is already connected to my {via.name}
+      </label>
+      <p className={questionClass}>What do you need us to do on {account.short}?</p>
       <Options
         label={`What do you need us to do on ${account.short}?`}
         value={access}
@@ -897,11 +934,11 @@ const AccountItem = ({ form, account, google }: { form: Form; account: Account; 
 
   return (
     <>
-      <p className={firstQuestionClass}>Do you have {google ? "an account" : "this account"}?</p>
+      <p className={firstQuestionClass}>{account.question ?? `Do you have ${google ? "an account" : "this account"}?`}</p>
       <Options
         label={`Do you have ${account.name}?`}
         value={has}
-        choices={YES_NO_UNSURE}
+        choices={account.yesOrNo ? YES_NO_UNSURE.filter((choice) => choice.value !== "unsure") : YES_NO_UNSURE}
         // With a profile to add, or an email to invite, there is only one way to give access, so it isn't asked.
         onChange={(value) => form.patch({ [`${id}.has`]: value, ...((profile || steps) && value === "yes" ? { [`${id}.access`]: "invite" } : {}) })}
       />
@@ -933,7 +970,7 @@ const AccountItem = ({ form, account, google }: { form: Form; account: Account; 
           </>
         )}
       </Reveal>
-      <Reveal open={has === "no"}>
+      <Reveal open={has === "no" && !account.yesOrNo}>
         <p className={firstQuestionClass}>Do you want us to create it for you?</p>
         <Options
           label="Do you want us to create it for you?"
@@ -1378,6 +1415,9 @@ const readBack = (item: string, answers: Answers, lists: { competitors: Competit
           : []),
         ...(of("logo.has") === "no" ? [{ icon: Plus, label: "Design a logo for you?", value: word("logo.create") }] : []),
         ...(of("logo.has") === "no" && of("logo.create") === "yes" ? [{ icon: FileText, label: "Style preferences", value: of("logo.style"), wide: true }] : []),
+        ...(of("logo.has") === "no" && of("logo.create") === "yes" && lists.files.logoStyle?.length
+          ? [{ icon: Upload, label: "Attached files", value: `${lists.files.logoStyle.length} file${lists.files.logoStyle.length > 1 ? "s" : ""}` }]
+          : []),
       ];
     default: {
       if (MEDIA.some((media) => media.id === item)) {
@@ -1398,12 +1438,13 @@ const readBack = (item: string, answers: Answers, lists: { competitors: Competit
       const saved = answers[`${item}.passwordSet`] === true;
       const login = [of(`${item}.username`), saved ? "password saved" : ""].filter(Boolean).join(" · ");
       return [
-        { icon: Check, label: "Do you have this account?", value: word(`${item}.has`) },
+        { icon: Check, label: account?.question ?? "Do you have this account?", value: word(`${item}.has`) },
         ...(of(`${item}.has`) === "yes" && account?.placeholder ? [{ icon: Link2, label: "Link or name", value: of(`${item}.link`) }] : []),
+        ...(of(`${item}.has`) === "yes" && account?.via ? [{ icon: Link2, label: "Already connected to your Facebook Page", value: answers[`${item}.connected`] === true ? "Yes" : "No" }] : []),
         ...(of(`${item}.has`) === "yes"
           ? [login ? { icon: KeyRound, label: "Login", value: login } : { icon: Lock, label: "Access", value: of(`${item}.access`) === "secure" ? "Sharing the login securely" : access(item) }]
           : []),
-        ...(of(`${item}.has`) === "no" ? [{ icon: Plus, label: "Create it for you?", value: word(`${item}.create`) }] : []),
+        ...(of(`${item}.has`) === "no" && !account?.yesOrNo ? [{ icon: Plus, label: "Create it for you?", value: word(`${item}.create`) }] : []),
       ];
     }
   }
@@ -1486,28 +1527,43 @@ const OnboardingProcess = ({ initial = null, mine = false }: { initial?: Onboard
     setFiles: (id, next) => {
       setAllFiles((now) => ({ ...now, [id]: next }));
       // Uploading photos or videos is choosing "share what I have"; a logo has no such choice.
-      setAnswers((now) => ({ ...now, [`${id}.hasFiles`]: next.length > 0, ...(next.length && id !== "logo" ? { [`${id}.mode`]: "upload" } : {}) }));
+      setAnswers((now) => ({ ...now, [`${id}.hasFiles`]: next.length > 0, ...(next.length && MEDIA.some((media) => media.id === id) ? { [`${id}.mode`]: "upload" } : {}) }));
     },
     canUpload: mine,
     say,
   };
 
-  const step = STEPS[current];
-  const statuses = statusesOf(answers);
+  // What the team took off this client's form (company-portal: OnboardingControls): steps and
+  // items they don't need, which are then not asked — nor counted. Who is answering always is.
+  // Until the team has said, it is the steps a client starts without.
+  const [notNeeded] = useState(() => new Set(initial?.onboarding?.notNeeded ?? DEFAULT_NOT_NEEDED));
+  const ownItems = (id: StepId) => (id === "contact" ? itemsOf(id, answers) : notNeeded.has(`step:${id}`) ? [] : itemsOf(id, answers).filter((item) => !notNeeded.has(controlIdOf(item))));
+  const steps = STEPS.filter((entry) => ownItems(entry.id).length > 0);
+  const asked = new Set(steps.flatMap((entry) => ownItems(entry.id)));
+
+  // A step can leave the list while it is open (its last item went with the website): the one before it then.
+  const step = steps[Math.min(current, steps.length - 1)];
+  const statuses = statusesOf(answers).filter((status) => asked.has(status.id));
   const statusOf = (item: string) => statuses.find((status) => status.id === item);
   const answered = statuses.filter(isAnswered).length;
-  const items = itemsOf(step.id, answers);
+  const items = ownItems(step.id);
   const accordion = isAccordion(step.id);
   const StepIcon = STEP_ICONS[step.id];
 
-  // A step is finished once every item on it has an answer.
-  const finished = (id: StepId) => {
-    const own = itemsOf(id, answers);
-    return own.length > 0 && own.every((item) => {
-      const status = statusOf(item);
-      return status ? isAnswered(status) : false;
-    });
+  // What the account manager has approved (company-portal: OnboardingControls), by item.
+  const [approved] = useState(() => new Set(initial?.onboarding?.approved ?? []));
+  // Where a step stands, as the team's own map of the onboarding shows it — and in its colors:
+  // approved once every item on it is; else waiting on the client while one has no answer, with
+  // us while one needs our help, and otherwise answered and ours to check.
+  const standingOf = (id: StepId): StepStanding => {
+    const own = ownItems(id);
+    if (own.length && own.every((item) => approved.has(controlIdOf(item)))) return "approved";
+    const tones = own.map((item) => statusOf(item)?.tone);
+    if (own.some((item, at) => tones[at] === undefined || tones[at] === "pending" || !isAnswered(statusOf(item)!))) return "wait";
+    return tones.some((tone) => tone === "followup" || tone === "create") ? "help" : "filled";
   };
+  // The whole onboarding is approved once every item the client is asked is.
+  const allApproved = asked.size > 0 && [...asked].every((item) => approved.has(controlIdOf(item)));
 
   // Sends what is on the form to the backend. The first time, that starts the onboarding —
   // from then on the email is fixed — and after that it updates it. `submit` hands it in.
@@ -1561,52 +1617,25 @@ const OnboardingProcess = ({ initial = null, mine = false }: { initial?: Onboard
     return true;
   };
 
-  // The questions on a step that still have no answer.
-  const unansweredOn = (id: StepId) =>
-    itemsOf(id, answers).filter((item) => {
-      const status = statusOf(item);
-      return !status || !isAnswered(status);
-    });
-
-  // Says which questions on this step still need an answer, and opens the first of them.
-  const askForAnswers = () => {
-    const missing = unansweredOn(step.id);
-    setFailure({
-      message: "Answer every question on this step before going on — or choose “Save and finish later” to keep what you have so far.",
-      details: missing.map((item) => statusOf(item)?.name ?? item),
-    });
-    if (accordion) setOpenItem(missing[0] ?? null);
-    setTimeout(() => document.getElementById(`onboarding-${missing[0]}`)?.scrollIntoView({ behavior: "smooth", block: "center" }), 50);
-    return false;
-  };
-
   // Opens a step — at the item named, or else at the first one still unanswered. What is on
   // the form is saved first; if that fails, the step stays where it is.
   //
-  // Going forward needs every question on the way answered: with one still open on this step
-  // it stays here and says which, and a jump further ahead stops at the first step that has
-  // one. (Who is answering is checked by `save`, which has its own words for it.) Going back
-  // is always allowed, and so is "Save and finish later", which asks for nothing.
+  // No question has to be answered to move on, forward or back: any of them can be left for
+  // later, or for good. (Who is answering is checked by `save`, which has its own words for it.)
   const go = async (target: number, item?: string) => {
-    if (target < 0 || target >= STEPS.length || saving) return false;
+    if (target < 0 || target >= steps.length || saving) return false;
     // Only reading: there is nothing to check and nothing to save.
     if (viewing) {
-      const own = itemsOf(STEPS[target].id, answers);
+      const own = ownItems(steps[target].id);
       setCurrent(target);
-      setOpenItem(isAccordion(STEPS[target].id) ? (item ?? own[0] ?? null) : null);
+      setOpenItem(isAccordion(steps[target].id) ? (item ?? own[0] ?? null) : null);
       window.scrollTo({ top: 0, behavior: "smooth" });
       return true;
     }
-    let index = target;
-    if (target > current) {
-      const stop = STEPS.findIndex((entry, at) => at >= current && at < target && entry.id !== "contact" && !finished(entry.id));
-      if (stop === current) return askForAnswers();
-      if (stop !== -1) index = stop;
-    }
     if (!(await save("step"))) return false;
-    const next = STEPS[index];
-    const own = itemsOf(next.id, answers);
-    setCurrent(index);
+    const next = steps[target];
+    const own = ownItems(next.id);
+    setCurrent(target);
     const unanswered = own.find((id) => {
       const status = statusOf(id);
       return !status || !isAnswered(status);
@@ -1637,12 +1666,7 @@ const OnboardingProcess = ({ initial = null, mine = false }: { initial?: Onboard
   // A signed-in client then sees their answers again, for reading. Without an account the form
   // is emptied: the answers are with the team now, and this browser no longer holds them.
   const submit = async () => {
-    // It can only be handed in whole: everything answered, as each step asked on the way here.
-    const open = statuses.filter((status) => !isAnswered(status));
-    if (open.length) {
-      setFailure({ message: "A few questions still need an answer before you can submit. They are on the steps that aren't ticked yet.", details: open.map((status) => status.name) });
-      return;
-    }
+    // It is handed in as it stands: a question left unanswered doesn't hold it back.
     const who = { name: text(answers, "contact.name"), company: text(answers, "contact.company"), again: handedIn };
     if (!(await save("submit", true))) return;
     setSubmitted(who);
@@ -1656,10 +1680,10 @@ const OnboardingProcess = ({ initial = null, mine = false }: { initial?: Onboard
 
   // From reading to changing — at a step, and an item on it, if they are named.
   const edit = (index = current, item?: string) => {
-    const own = itemsOf(STEPS[index].id, answers);
+    const own = ownItems(steps[index].id);
     setFailure(null);
     setCurrent(index);
-    setOpenItem(isAccordion(STEPS[index].id) ? (item ?? own[0] ?? null) : null);
+    setOpenItem(isAccordion(steps[index].id) ? (item ?? own[0] ?? null) : null);
     setEditing(true);
     window.scrollTo({ top: 0 });
   };
@@ -1736,7 +1760,7 @@ const OnboardingProcess = ({ initial = null, mine = false }: { initial?: Onboard
   // The same item as it is read back, once the onboarding has been handed in.
   const viewOf = (item: string) => <ReadBack rows={readBack(item, answers, { competitors, pages, features, files })} />;
 
-  const nextStep = STEPS[current + 1];
+  const nextStep = steps[current + 1];
 
   return (
     <MotionConfig reducedMotion="user">
@@ -1778,11 +1802,11 @@ const OnboardingProcess = ({ initial = null, mine = false }: { initial?: Onboard
           <div className="flex justify-between text-[12.5px]">
             <b className="font-semibold text-[#0b0c24]">{step.title}</b>
             <span className="text-[#6b7280]">
-              Step {current + 1} of {STEPS.length}
+              Step {current + 1} of {steps.length}
             </span>
           </div>
           <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-[#eef0f3]">
-            <motion.div className="h-full rounded-full bg-[#2f5fd8]" initial={false} animate={{ width: `${((current + 1) / STEPS.length) * 100}%` }} transition={{ duration: 0.3 }} />
+            <motion.div className="h-full rounded-full bg-[#2f5fd8]" initial={false} animate={{ width: `${((current + 1) / steps.length) * 100}%` }} transition={{ duration: 0.3 }} />
           </div>
         </div>
 
@@ -1803,7 +1827,7 @@ const OnboardingProcess = ({ initial = null, mine = false }: { initial?: Onboard
                   </span>
                   <div className="min-w-0">
                     <div className="text-[11px] font-semibold tracking-[0.04em] text-[#2f5fd8] uppercase">
-                      Step {current + 1} of {STEPS.length}
+                      Step {current + 1} of {steps.length}
                     </div>
                     <h2 className="text-[17px] leading-snug font-semibold text-[#0b0c24]">{step.heading}</h2>
                     <p className="mt-0.5 text-[12.5px] text-[#6b7280]">{step.sub}</p>
@@ -1956,14 +1980,20 @@ const OnboardingProcess = ({ initial = null, mine = false }: { initial?: Onboard
             <div className={`${cardClass} hidden p-5.5 lg:block`}>
               <h3 className="text-[15px] font-semibold text-[#0b0c24]">Your progress</h3>
               <div className="mt-2.5 mb-1.5 h-2 overflow-hidden rounded-full bg-[#eef0f3]">
-                <motion.div className="h-full rounded-full bg-[#16a34a]" initial={false} animate={{ width: `${(answered / statuses.length) * 100}%` }} transition={{ duration: 0.3 }} />
+                {/* Yellow until the team has approved everything; green from then on. */}
+                <motion.div
+                  className={`h-full rounded-full transition-colors duration-300 ${allApproved ? "bg-[#16a34a]" : "bg-[#FACC15]"}`}
+                  initial={false}
+                  animate={{ width: `${(answered / statuses.length) * 100}%` }}
+                  transition={{ duration: 0.3 }}
+                />
               </div>
               <p className="text-[12.5px] text-[#6b7280]">
                 {answered} of {statuses.length} questions answered
               </p>
               <ol className="mt-3.5 flex flex-col">
-                {STEPS.map((entry, index) => {
-                  const done = finished(entry.id);
+                {steps.map((entry, index) => {
+                  const standing = standingOf(entry.id);
                   const here = index === current;
                   return (
                     <li key={entry.id}>
@@ -1975,12 +2005,8 @@ const OnboardingProcess = ({ initial = null, mine = false }: { initial?: Onboard
                           here ? "bg-[#e8effd] font-semibold text-[#2f5fd8]" : "font-medium text-[#6b7280] hover:bg-[#f5f6f8]"
                         }`}
                       >
-                        <span
-                          className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full border-[1.5px] text-[11px] ${
-                            done ? "border-[#16a34a] bg-[#16a34a] text-white" : here ? "border-[#2f5fd8] bg-white text-[#2f5fd8]" : "border-[#d1d5db] bg-white"
-                          }`}
-                        >
-                          {done ? <Check size={12} strokeWidth={3} /> : index + 1}
+                        <span className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full border-2 text-[11px] font-bold ${STEP_DOTS[standing][0]}`}>
+                          {standing === "approved" ? <Check size={12} strokeWidth={3} /> : index + 1}
                         </span>
                         {entry.title}
                       </button>
@@ -1988,6 +2014,14 @@ const OnboardingProcess = ({ initial = null, mine = false }: { initial?: Onboard
                   );
                 })}
               </ol>
+              <div className="mt-3 flex flex-wrap gap-x-3 gap-y-1.5 border-t border-[#eef0f2] pt-3 text-[11px] text-[#6b7280]">
+                {STEP_STANDINGS.map((standing) => (
+                  <span key={standing} className="inline-flex items-center gap-1.5">
+                    <i className={`inline-block size-2.5 rounded-full border-2 ${STEP_DOTS[standing][0]}`} />
+                    {STEP_DOTS[standing][1]}
+                  </span>
+                ))}
+              </div>
               {started ? (
                 <div className="mt-3.5 border-t border-[#eef0f2] pt-3 text-[11.5px] leading-normal text-[#6b7280]">
                   Saved under <b className="font-semibold break-all text-[#1f2530]">{text(answers, "contact.email")}</b>

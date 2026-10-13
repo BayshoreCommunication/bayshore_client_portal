@@ -7,7 +7,7 @@ import { BACKEND_API_URL } from "@/lib/backend";
 // streamed through, never held in memory here. The backend checks everything: the kind, the
 // file types, sizes and count.
 
-const KINDS = ["professionalPhotos", "businessPhotos", "videos", "logo"];
+const KINDS = ["professionalPhotos", "businessPhotos", "videos", "logo", "logoStyle"];
 
 type Context = { params: Promise<{ kind: string }> };
 

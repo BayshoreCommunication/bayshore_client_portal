@@ -46,6 +46,8 @@ export interface OnboardingAccount {
   needsHelp?: boolean;
   // They don't have one: should we create it?
   wantsCreated?: boolean;
+  // Instagram: it is already connected to their Facebook Page.
+  connected?: boolean;
   // The account's own login, when that is how we get in: its username or email, and its
   // password. The password is write-only: it is sent as typed, stored sealed, and never comes
   // back — `loginPasswordSet` says one is stored.
@@ -78,9 +80,9 @@ export interface OnboardingAnswers {
   cms?: OnboardingPlatform & { developer?: string };
   // Their business email — not the contact's email, which sits beside the answers.
   email?: { has?: OnboardingYesNo; provider?: string; wantsCreated?: boolean; accounts?: number; addresses?: string };
-  logo?: { has?: OnboardingYesNo; link?: string; files?: OnboardingFile[]; wantsCreated?: boolean; style?: string };
+  logo?: { has?: OnboardingYesNo; link?: string; files?: OnboardingFile[]; wantsCreated?: boolean; style?: string; styleFiles?: OnboardingFile[] };
   google?: Partial<Record<"businessProfile" | "analytics" | "searchConsole" | "tagManager" | "ads", OnboardingAccount>>;
-  social?: Partial<Record<"facebook" | "instagram" | "youtube" | "linkedin" | "tiktok" | "x", OnboardingAccount>>;
+  social?: Partial<Record<"facebook" | "instagram" | "youtube" | "linkedin" | "tiktok" | "x" | "email", OnboardingAccount>>;
   media?: Partial<Record<"professionalPhotos" | "businessPhotos" | "videos", OnboardingMedia>>;
 }
 
@@ -91,7 +93,9 @@ export interface Onboarding {
   companyName: string;
   email: string;
   phone?: string;
-  onboarding?: OnboardingAnswers & { status: OnboardingStatus; submittedAt?: string };
+  // `notNeeded` is the team's: the steps ("step:google") and items ("social.facebook") this
+  // client isn't asked. `approved` is the items their account manager has approved.
+  onboarding?: OnboardingAnswers & { status: OnboardingStatus; submittedAt?: string; notNeeded?: string[]; approved?: string[] };
 }
 
 // Starting needs to know who is answering; the email can't be changed afterwards.

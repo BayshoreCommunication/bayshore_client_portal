@@ -188,6 +188,8 @@ type Flow = {
 
 const val = (s: State, id: FieldId) => s.f[id].trim();
 const emailOk = (value: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
+const urlOk = (value: string) => /^(https?:\/\/)?[^\s.]+\.[^\s]{2,}/.test(value);
+const URL_PROBLEM = "Enter your website address, like https://yourfirm.com.";
 const money = (value: string | number) => `$${Math.round(+value).toLocaleString("en-US")}`;
 const withStep = (list: StepId[], id: StepId) => (list.includes(id) ? list : [...list, id]);
 const isMissing = (answer?: string) => answer === "dont" || answer === "unsure";
@@ -316,6 +318,9 @@ const CHECKS: Record<FormStep, (s: State) => Errors> = {
     const problems: Errors = {};
     if (!val(s, "b-name")) problems["b-name"] = "Enter your business name.";
     if (!val(s, "b-desc")) problems["b-desc"] = "Add a short description of your business.";
+    // A yes needs the website's address too.
+    if (!s.pick["w-has"]) problems["w-has"] = "Choose Yes or No.";
+    else if (s.pick["w-has"] === "yes" && !urlOk(val(s, "w-url"))) problems["w-url"] = URL_PROBLEM;
     if (!s.services.length) problems["b-services"] = "Add at least one service.";
     if (!s.areas.length) problems["b-areas"] = "Add at least one area you serve.";
     if (!val(s, "b-cname")) problems["b-cname"] = "Enter the main contact's name.";
@@ -350,7 +355,7 @@ const CHECKS: Record<FormStep, (s: State) => Errors> = {
     const has = s.pick["w-has"];
     if (!has) problems["w-has"] = "Choose Yes or No.";
     if (has === "yes") {
-      if (!/^(https?:\/\/)?[^\s.]+\.[^\s]{2,}/.test(val(s, "w-url"))) problems["w-url"] = "Enter your website address, like https://yourfirm.com.";
+      if (!urlOk(val(s, "w-url"))) problems["w-url"] = URL_PROBLEM;
       if (!s.pick["w-plan"]) problems["w-plan"] = "Choose what you'd like to do with your site.";
     }
     if (has === "no") {
@@ -919,8 +924,9 @@ const BusinessStep = ({ flow }: { flow: Flow }) => {
   const phone = val(s, "b-phone");
   const reach = s.pick["b-reach"];
   const searches = s.services.length * s.areas.length;
-  // The eight answers Continue asks for, counted as they are given.
-  const answered = 8 - Object.keys(CHECKS.business(s)).length;
+  // The nine answers Continue asks for, counted as they are given. The website's address
+  // goes with the yes it follows, so it isn't counted on its own.
+  const answered = 9 - Object.keys(CHECKS.business(s)).filter((id) => id !== "w-url").length;
 
   // Ticked, the contact is whoever signed up; unticked, it is someone to be named.
   const setMe = (me: boolean) => {
@@ -953,6 +959,15 @@ const BusinessStep = ({ flow }: { flow: Flow }) => {
                 />
                 <div className="-mt-0.5 text-right text-[12px] text-[#5b6a72] tabular-nums">{s.f["b-desc"].length} / 500</div>
               </Field>
+              {/* The answer the website step starts with, and the same one: given here it is
+                  already filled in there, and changed there it is changed here. */}
+              <Field error={errors["w-has"]}>
+                <span className={labelClass}>Do you have a website?</span>
+                <Pills options={YES_NO} value={s.pick["w-has"]} onPick={(value) => flow.setPick("w-has", value)} />
+              </Field>
+              <Reveal open={s.pick["w-has"] === "yes"} className="-m-1 p-1">
+                <TextField flow={flow} id="w-url" label="Website URL" type="url" placeholder="https://yourfirm.com" />
+              </Reveal>
             </div>
 
             <div className={sectionClass} {...watch("offer")}>
@@ -1074,7 +1089,7 @@ const BusinessStep = ({ flow }: { flow: Flow }) => {
                 <Icon name="list" className="size-4.5 text-[#7a5a17]" />
                 Your answers so far
               </span>
-              <span className="text-[12px] font-medium text-[#5b6a72] tabular-nums">{answered} of 8</span>
+              <span className="text-[12px] font-medium text-[#5b6a72] tabular-nums">{answered} of 9</span>
             </h3>
             <SoFar label="Business" on={part === "about"}>
               {name || "—"}
@@ -1885,7 +1900,8 @@ const useFlow = (initial: State) => {
     }
 
     patch(changes);
-    save([step]);
+    // Whether they have a website is asked with the business too, so it is saved with it.
+    save(step === "business" ? [step, "website"] : [step]);
     go(nextOf(step));
   };
 

@@ -1,5 +1,5 @@
 import type { StaticImageData } from "next/image";
-import facebookProfilePicture from "@/public/assets/pic.jpg";
+import facebookProfilePicture from "@/public/assets/bayshore-logo.webp";
 import type { Onboarding, OnboardingAccount, OnboardingAnswers, OnboardingFile, OnboardingMedia } from "@/app/actions/onboarding";
 
 // What the onboarding form asks, how each answer is read, and how the answers go to the
@@ -7,7 +7,7 @@ import type { Onboarding, OnboardingAccount, OnboardingAnswers, OnboardingFile, 
 // touching how they are drawn.
 
 // The address clients invite to their accounts. Change it to the team's access email.
-export const AGENCY_EMAIL = "info.bayshorecommunication@gmail.com";
+export const AGENCY_EMAIL = "info@bayshorecommunication.org";
 
 // ── Answers ──────────────────────────────────────────────────────────────────
 
@@ -163,6 +163,12 @@ export type Account = {
   // The account's own login (username or email, and password) is how we get in: it is asked
   // for on the form as soon as they say they have the account.
   login?: boolean;
+  // What the login's first box is called, where "username or email" isn't it.
+  loginLabel?: string;
+  // What is asked first, where "Do you have this account?" isn't it.
+  question?: string;
+  // Only a yes or a no is asked, and a no is the whole answer: nothing is offered to be created.
+  yesOrNo?: boolean;
 };
 
 export const GOOGLE: Account[] = [
@@ -277,6 +283,8 @@ export const SOCIAL: Account[] = [
     login: true,
   },
   { id: "x", name: "X (Twitter)", short: "X (Twitter)", placeholder: "@yourbusiness", steps: null, login: true },
+  // The email account itself, signed in to like the ones above. The address is its login, so no link is asked for.
+  { id: "em", name: "Email", short: "Email", steps: null, login: true, loginLabel: "Email address", question: "Do you have any personal email for credential purposes?", yesOrNo: true },
 ];
 
 // ── Photos and videos ────────────────────────────────────────────────────────
@@ -293,6 +301,8 @@ export const MEDIA_UPLOAD: Record<string, { kind: string; accept: string[]; form
   videos: { kind: "videos", accept: ["video/mp4", "video/quicktime", "video/webm"], formats: "MP4, MOV or WEBM", maxMb: 200 },
   // The logo is uploaded the same way, and kept with the logo's own answers.
   logo: { kind: "logo", accept: [...PHOTO_UPLOAD.accept, "image/svg+xml"], formats: "PNG, JPG, WEBP, GIF or SVG", maxMb: 10 },
+  // And so is what they attach to the style they'd like, when the logo is ours to design.
+  logoStyle: { kind: "logoStyle", accept: [...PHOTO_UPLOAD.accept, "image/svg+xml"], formats: "PNG, JPG, WEBP, GIF or SVG", maxMb: 10 },
 };
 // How many files a kind can hold, and how many one upload can bring.
 export const MEDIA_MAX_FILES = 40;
@@ -402,8 +412,21 @@ export const contactProblem = (answers: Answers): string | null => {
 
 // The form's own names for the accounts and media, against the backend's.
 const GOOGLE_FIELDS = { gbp: "businessProfile", ga: "analytics", gsc: "searchConsole", gtm: "tagManager", gads: "ads" } as const;
-const SOCIAL_FIELDS = { fb: "facebook", ig: "instagram", yt: "youtube", li: "linkedin", tt: "tiktok", x: "x" } as const;
+const SOCIAL_FIELDS = { fb: "facebook", ig: "instagram", yt: "youtube", li: "linkedin", tt: "tiktok", x: "x", em: "email" } as const;
 const MEDIA_FIELDS = { pphotos: "professionalPhotos", bphotos: "businessPhotos", videos: "videos" } as const;
+
+// What a client isn't asked until the team turns it on: every step but who they are, their
+// website, their business email and their logo. It stands until the team has saved a list of
+// its own (company-portal: OnboardingControls → DEFAULT_NOT_NEEDED, which is the same list).
+export const DEFAULT_NOT_NEEDED = ["step:domain", "step:google", "step:social", "step:media"];
+
+// An item as the team's controls name it (company-portal: OnboardingControls): an account or a
+// kind of media by its name on the record, under its section ("social.facebook"); anything
+// else by its own id. A step is "step:" and its id.
+export const controlIdOf = (item: string) => {
+  const under = (section: string, fields: Record<string, string>) => (item in fields ? `${section}.${fields[item]}` : null);
+  return under("google", GOOGLE_FIELDS) ?? under("social", SOCIAL_FIELDS) ?? under("media", MEDIA_FIELDS) ?? item;
+};
 
 const entriesOf = <Fields extends Record<string, string>>(fields: Fields) => Object.entries(fields) as [keyof Fields & string, Fields[keyof Fields]][];
 
@@ -426,9 +449,11 @@ export const toBackend = (answers: Answers, competitors: Competitor[], pages: st
     // An account we get into with its own login has no other way of giving access to choose.
     access: answers[`${id}.has`] === "yes" && SOCIAL.some((account) => account.id === id && account.login) ? "secure" : choice(`${id}.access`),
     loginUsername: text(`${id}.username`),
+    connected: answers[`${id}.has`] === "yes" ? flag(`${id}.connected`) : undefined,
     accessGiven: flag(`${id}.done`),
     needsHelp: flag(`${id}.help`),
-    wantsCreated: wants(`${id}.create`),
+    // Where a no is the whole answer, nothing is to be created: the record says so, for the team.
+    wantsCreated: SOCIAL.some((account) => account.id === id && account.yesOrNo) ? (answers[`${id}.has`] === "no" ? false : undefined) : wants(`${id}.create`),
     // Only when one was typed just now: the one already stored is kept by the backend.
     ...(typeof answers[`${id}.password`] === "string" && answers[`${id}.password`] !== "" ? { loginPassword: answers[`${id}.password`] as string } : {}),
   });
@@ -525,10 +550,11 @@ export const fromBackend = (stored: Onboarding): { answers: Answers; competitors
     put(`${id}.help`, account?.needsHelp);
     put(`${id}.create`, yesNo(account?.wantsCreated));
     put(`${id}.username`, account?.loginUsername);
+    put(`${id}.connected`, account?.connected);
     put(`${id}.passwordSet`, account?.loginPasswordSet);
   }
   // The logo's files, with the photos and videos: all uploaded the same way.
-  const files: Record<string, OnboardingFile[]> = { logo: logo?.files ?? [] };
+  const files: Record<string, OnboardingFile[]> = { logo: logo?.files ?? [], logoStyle: logo?.styleFiles ?? [] };
   put("logo.hasFiles", files.logo.length > 0);
   for (const [id, field] of entriesOf(MEDIA_FIELDS)) {
     const media = saved.media?.[field];
@@ -600,8 +626,8 @@ const cmsStanding = (answers: Answers): Standing => {
 
 const accountStanding = (answers: Answers, id: string): Standing => {
   const has = answers[`${id}.has`];
+  const own = SOCIAL.find((account) => account.id === id);
   if (has === "yes") {
-    const own = SOCIAL.find((account) => account.id === id);
     const via = own?.via;
     const access = own?.login ? "secure" : answers[`${id}.access`];
     if (!access) return ["Choose access", "pending"];
@@ -614,7 +640,7 @@ const accountStanding = (answers: Answers, id: string): Standing => {
     if (via) return [`Through ${SOCIAL.find((account) => account.id === via)?.short ?? "another account"}`, answers[`${via}.done`] === true ? "done" : "pending"];
     return inviting(answers, id);
   }
-  if (has === "no") return wanted(answers, id, "We'll create it");
+  if (has === "no") return own?.yesOrNo ? NA : wanted(answers, id, "We'll create it");
   if (has === "unsure") return ["We'll check", "followup"];
   return TODO;
 };
