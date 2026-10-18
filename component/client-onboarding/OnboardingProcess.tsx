@@ -1,10 +1,10 @@
 "use client";
 
-import { useEffect, useRef, useState, type DragEvent, type ReactNode } from "react";
+import { Fragment, useEffect, useRef, useState, type DragEvent, type ReactNode } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { AnimatePresence, MotionConfig, motion } from "framer-motion";
-import { AtSign, Building2, Camera, Check, ChevronDown, CircleAlert, Copy, ExternalLink, FileText, Globe, Info, KeyRound, LifeBuoy, Link2, ListChecks, Loader2, Lock, Mail, MapPin, Palette, Pencil, Phone, Plus, Server, Upload, User, Users, X, type LucideIcon } from "lucide-react";
+import { AtSign, Building2, Camera, Check, ChevronDown, CircleAlert, Copy, ExternalLink, FileText, Globe, Info, KeyRound, LifeBuoy, Link2, ListChecks, Loader2, Lock, Mail, MapPin, Palette, Pencil, Phone, Plus, Server, Target, Upload, User, Users, X, type LucideIcon } from "lucide-react";
 import { deleteOnboardingAction, startOnboardingAction, updateMyOnboardingAction, updateOnboardingAction, type Onboarding, type OnboardingFile } from "@/app/actions/onboarding";
 import { formatFileSize } from "@/component/projects/projectUi";
 import { poppins } from "@/component/shared/fonts";
@@ -17,6 +17,9 @@ import {
   EMAIL_STEPS,
   controlIdOf,
   FEATURE_CHOICES,
+  GOAL_BUDGETS,
+  GOAL_TARGETS,
+  GOAL_TIMEFRAMES,
   GOOGLE,
   MAX_COMPETITORS,
   MEDIA,
@@ -33,6 +36,7 @@ import {
   isAccordion,
   isAnswered,
   itemsOf,
+  listOf,
   platformsOf,
   statusesOf,
   toBackend,
@@ -61,6 +65,8 @@ const labelClass = `mt-3.5 ${firstLabelClass}`;
 const firstQuestionClass = "mb-2 text-[12.5px] font-semibold text-[#374151]";
 const questionClass = `mt-3.5 ${firstQuestionClass}`;
 const hintClass = "text-[11.5px] text-[#6b7280]";
+// The heading of a part of an item that asks several things.
+const partClass = "mt-6 mb-2.5 flex items-center gap-2 border-t border-[#eef0f3] pt-4 text-[13px] font-semibold text-[#0b0c24]";
 const smallButton =
   "inline-flex cursor-pointer items-center gap-1.5 rounded-lg border border-[#e2e5e9] bg-white px-3 py-1.5 text-[12px] font-semibold text-[#1f2530] hover:border-[#2f5fd8] hover:text-[#2f5fd8] disabled:cursor-not-allowed disabled:opacity-45 disabled:hover:border-[#e2e5e9] disabled:hover:text-[#1f2530]";
 
@@ -558,8 +564,134 @@ const WebsiteItem = ({
   );
 };
 
+// One goal: the number today and the one they want, side by side.
+const GoalTarget = ({ form, target }: { form: Form; target: (typeof GOAL_TARGETS)[number] }) => {
+  const box = (end: "now" | "goal", label: string, placeholder: string) => (
+    <div className="min-w-0 flex-1">
+      <label htmlFor={`${target.id}-${end}`} className="mb-1.5 block text-[10.5px] font-semibold tracking-[0.06em] text-[#6b7280] uppercase">
+        {label}
+      </label>
+      <div className="relative">
+        {target.money ? <span className="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-[13px] text-[#6b7280]">$</span> : null}
+        <input
+          id={`${target.id}-${end}`}
+          type="number"
+          min={0}
+          inputMode="numeric"
+          className={`${inputClass} ${target.money ? "pl-6.5" : ""}`}
+          placeholder={placeholder}
+          value={text(form.answers, `${target.id}.${end}`)}
+          onChange={(event) => form.set(`${target.id}.${end}`, event.target.value)}
+        />
+      </div>
+    </div>
+  );
+  return (
+    <div className="rounded-xl border border-[#e6e8eb] bg-[#fafbfc] p-3.5">
+      <div className="text-[13px] font-semibold text-[#0b0c24]">{target.title}</div>
+      <p className={`${hintClass} mt-0.5 mb-3`}>{target.about}</p>
+      <div className="flex items-end gap-2.5">
+        {box("now", "Today", target.now)}
+        <span className="pb-2.5 text-[#2f5fd8]" aria-hidden="true">
+          →
+        </span>
+        {box("goal", "Your goal", target.goal)}
+      </div>
+    </div>
+  );
+};
+
+const Gold = ({ children }: { children: ReactNode }) => <b className="text-[#e7c780]">{children}</b>;
+
+// The goals said back in a sentence, with today and the goal drawn as bars — as the steps right
+// after signing up show them (clientstart/ClientSignup → LivePlan).
+const GoalPlan = ({ answers }: { answers: Answers }) => {
+  const pairOf = (id: string) => [text(answers, `${id}.now`).trim(), text(answers, `${id}.goal`).trim()];
+  const revenue = pairOf("goal.rev");
+  const leads = pairOf("goal.leads");
+  const clients = pairOf("goal.clients");
+  const has = (pair: string[]) => pair[0] !== "" && pair[1] !== "";
+  const time = text(answers, "goal.time");
+  const when = time && time !== "unsure" ? GOAL_TIMEFRAMES.find((choice) => choice.value === time)?.label : null;
+  const money = (value: number) => `$${Math.round(value).toLocaleString("en-US")}`;
+  const plain = (value: number) => String(value);
+
+  if (!has(revenue) && !has(leads) && !has(clients)) {
+    return (
+      <div className="mt-4 rounded-[14px] bg-[#16212a] p-4.5 text-white" aria-live="polite">
+        <p className="text-[14px]">Fill in today and your goal to see your plan here.</p>
+      </div>
+    );
+  }
+
+  const parts: ReactNode[] = [];
+  if (has(revenue))
+    parts.push(
+      <>
+        from <Gold>{money(+revenue[0])}</Gold> to <Gold>{money(+revenue[1])}</Gold> a month in revenue
+      </>,
+    );
+  if (has(leads))
+    parts.push(
+      <>
+        from <Gold>{+leads[0]}</Gold> to <Gold>{+leads[1]}</Gold> leads
+      </>,
+    );
+  if (has(clients))
+    parts.push(
+      <>
+        from <Gold>{+clients[0]}</Gold> to <Gold>{+clients[1]}</Gold> new clients
+      </>,
+    );
+
+  const bars: [label: string, value: number, share: number, goal: boolean, format: (value: number) => string][] = [];
+  const pair = (label: string, values: string[], format: (value: number) => string) => {
+    const top = Math.max(+values[0], +values[1], 1);
+    bars.push([`${label} today`, +values[0], +values[0] / top, false, format], [`${label} goal`, +values[1], +values[1] / top, true, format]);
+  };
+  if (has(revenue)) pair("Revenue", revenue, money);
+  if (has(leads)) pair("Leads", leads, plain);
+  if (has(clients)) pair("Clients", clients, plain);
+
+  return (
+    <div className="mt-4 flex flex-col gap-3 rounded-[14px] bg-[#16212a] p-4.5 text-white" aria-live="polite">
+      <p className="text-[14px] leading-relaxed">
+        You want to grow{" "}
+        {parts.map((part, index) => (
+          <Fragment key={index}>
+            {index === 0 ? "" : index === parts.length - 1 ? " and " : ", "}
+            {part}
+          </Fragment>
+        ))}
+        {when ? (
+          <>
+            {" "}
+            in <Gold>{when}</Gold>
+          </>
+        ) : null}
+        .
+      </p>
+      <div className="grid grid-cols-[auto_1fr_auto] items-center gap-x-2.5 gap-y-1.5 text-[12px] text-[#a3b3bc] tabular-nums">
+        {bars.map(([label, value, share, goal, format]) => (
+          <Fragment key={label}>
+            <span>{label}</span>
+            <div className="h-2 overflow-hidden rounded-lg bg-[#2d3f4b]">
+              <motion.div className={`h-full rounded-lg ${goal ? "bg-[#e7c780]" : "bg-[#a3b3bc]"}`} initial={{ width: 0 }} animate={{ width: `${Math.max(2, share * 100)}%` }} transition={{ duration: 0.35, ease: "easeOut" }} />
+            </div>
+            <span>{format(value)}</span>
+          </Fragment>
+        ))}
+      </div>
+    </div>
+  );
+};
+
+// The most a business description can say (the steps right after signing up allow as much).
+const DESCRIPTION_MAX = 500;
+
 // Who is answering. The answers are saved under this email, which is fixed once they are —
-// so it is asked first, before anything else can be saved.
+// so it is asked first, before anything else can be saved. Then about their business, where
+// it is, and its goals — asked right after signing up too (clientstart/ClientSignup); all optional.
 const ContactItem = ({ form, started }: { form: Form; started: boolean }) => (
   <>
     <div className="grid gap-3.5 sm:grid-cols-2">
@@ -575,6 +707,44 @@ const ContactItem = ({ form, started }: { form: Form; started: boolean }) => (
         We save your answers under this email as you go, so you can come back on this browser and finish later.
       </Note>
     )}
+
+    <h4 className={partClass}>
+      <Building2 size={15} strokeWidth={2} /> Business description
+    </h4>
+    <label htmlFor="biz-desc" className="sr-only">
+      Business description
+    </label>
+    <textarea
+      id="biz-desc"
+      maxLength={DESCRIPTION_MAX}
+      className={`${inputClass} min-h-24 resize-y leading-normal`}
+      placeholder="What you do, who your clients are, and what makes you different"
+      value={text(form.answers, "biz.desc")}
+      onChange={(event) => form.set("biz.desc", event.target.value)}
+    />
+    <div className={`${hintClass} mt-1 text-right tabular-nums`}>
+      {text(form.answers, "biz.desc").length} / {DESCRIPTION_MAX}
+    </div>
+
+    <h4 className={partClass}>
+      <MapPin size={15} strokeWidth={2} /> Location
+    </h4>
+    <Field form={form} id="biz-areas" name="biz.areas" label="Where your business is, and the areas you serve" hint="(separate with commas)" placeholder="e.g. Tampa, Clearwater, St. Petersburg" first />
+
+    <h4 className={partClass}>
+      <Target size={15} strokeWidth={2} /> Goals
+    </h4>
+    <div className="flex flex-col gap-3">
+      {GOAL_TARGETS.map((target) => (
+        <GoalTarget key={target.id} form={form} target={target} />
+      ))}
+    </div>
+    <p className={questionClass}>How soon would you like to get there?</p>
+    <Options label="How soon would you like to get there?" value={form.answers["goal.time"]} choices={GOAL_TIMEFRAMES} onChange={(value) => form.set("goal.time", value)} />
+    <p className={questionClass}>How much do you plan to spend on marketing each month?</p>
+    <p className={`${hintClass} -mt-1 mb-2`}>Include ads and agency fees. This helps us suggest a realistic plan.</p>
+    <Options label="How much do you plan to spend on marketing each month?" value={form.answers["goal.budget"]} choices={GOAL_BUDGETS} onChange={(value) => form.set("goal.budget", value)} />
+    <GoalPlan answers={form.answers} />
   </>
 );
 
@@ -1337,6 +1507,9 @@ const readBack = (item: string, answers: Answers, lists: { competitors: Competit
   const word = (key: string, words = HAS_WORDS) => words[of(key)] ?? "";
   // Where giving us access stands.
   const access = (id: string) => (answers[`${id}.done`] === true ? "Access given" : answers[`${id}.help`] === true ? "Needs help" : "Not given yet");
+  // A number today and as they want it: "20 → 40".
+  const target = (key: string, unit: string) =>
+    of(`${key}.now`) || of(`${key}.goal`) ? `${of(`${key}.now`) ? unit + of(`${key}.now`) : "—"} → ${of(`${key}.goal`) ? unit + of(`${key}.goal`) : "—"}` : "";
 
   switch (item) {
     case "contact":
@@ -1345,6 +1518,11 @@ const readBack = (item: string, answers: Answers, lists: { competitors: Competit
         { icon: Building2, label: "Company name", value: of("contact.company") },
         { icon: Mail, label: "Email", value: of("contact.email") },
         { icon: Phone, label: "Phone", value: of("contact.phone") },
+        { icon: Building2, label: "Business description", value: of("biz.desc"), wide: true },
+        { icon: MapPin, label: "Location", value: listOf(of("biz.areas")).join(", "), wide: true },
+        ...GOAL_TARGETS.map((goal) => ({ icon: Target, label: goal.title, value: target(goal.id, goal.money ? "$" : "") })),
+        { icon: Info, label: "How soon", value: GOAL_TIMEFRAMES.find((choice) => choice.value === of("goal.time"))?.label ?? "" },
+        { icon: Info, label: "Monthly marketing budget", value: GOAL_BUDGETS.find((choice) => choice.value === of("goal.budget"))?.label ?? "" },
       ];
     case "website": {
       const building = of("web.need") === "new" || of("web.need") === "redesign";
@@ -1506,7 +1684,11 @@ const OnboardingProcess = ({ initial = null, mine = false }: { initial?: Onboard
   const [submittedAt, setSubmittedAt] = useState<string | null>(initial?.onboarding?.status === "submitted" ? (initial.onboarding.submittedAt ?? "") : null);
   const [editing, setEditing] = useState(false);
   const handedIn = submittedAt !== null;
-  const viewing = handedIn && !editing;
+  // A signed-in client who has finished signing up — up to confirming the kickoff call — has
+  // their answers read back too, until they choose to edit them.
+  const [signedUp] = useState(() => mine && initial?.onboarding?.kickoffCall?.booked === true);
+  const reading = handedIn || signedUp;
+  const viewing = reading && !editing;
   // Why the last save didn't go through. It stays in view, above the buttons, until the next try.
   const [failure, setFailure] = useState<{ message: string; details: string[] } | null>(null);
 
@@ -1758,7 +1940,13 @@ const OnboardingProcess = ({ initial = null, mine = false }: { initial?: Onboard
   };
 
   // The same item as it is read back, once the onboarding has been handed in.
-  const viewOf = (item: string) => <ReadBack rows={readBack(item, answers, { competitors, pages, features, files })} />;
+  const viewOf = (item: string) => (
+    <>
+      <ReadBack rows={readBack(item, answers, { competitors, pages, features, files })} />
+      {/* About you: the goals as a plan, as they are shown while being answered. */}
+      {item === "contact" ? <GoalPlan answers={answers} /> : null}
+    </>
+  );
 
   const nextStep = steps[current + 1];
 
@@ -1785,14 +1973,16 @@ const OnboardingProcess = ({ initial = null, mine = false }: { initial?: Onboard
             <button type="button" onClick={() => edit(current, openItem ?? undefined)} className="inline-flex cursor-pointer items-center gap-2 rounded-lg bg-[#0b0c24] px-5 py-2.5 text-[13px] font-semibold text-white hover:bg-[#1e2140]">
               <Pencil size={14} strokeWidth={2.25} /> Edit
             </button>
-          ) : handedIn ? (
+          ) : reading ? (
             <div className="flex items-center gap-2.5">
               <button type="button" disabled={saving !== null} onClick={stopEditing} className="cursor-pointer rounded-lg border border-[#e2e5e9] bg-white px-5 py-2.5 text-[13px] font-semibold text-[#1f2530] hover:bg-[#f3f4f6] disabled:cursor-wait disabled:opacity-60">
                 Stop editing
               </button>
-              <button type="button" disabled={saving !== null} onClick={submit} className="cursor-pointer rounded-lg bg-[#0b0c24] px-5 py-2.5 text-[13px] font-semibold text-white hover:bg-[#1e2140] disabled:cursor-wait disabled:opacity-80">
-                Resubmit
-              </button>
+              {handedIn ? (
+                <button type="button" disabled={saving !== null} onClick={submit} className="cursor-pointer rounded-lg bg-[#0b0c24] px-5 py-2.5 text-[13px] font-semibold text-white hover:bg-[#1e2140] disabled:cursor-wait disabled:opacity-80">
+                  Resubmit
+                </button>
+              ) : null}
             </div>
           ) : null}
         </div>

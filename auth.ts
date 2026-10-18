@@ -59,6 +59,9 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ identifier, password }),
+            // A backend that never answers would leave the form on "Signing in…" for good:
+            // give up after a while and say the server couldn't be reached.
+            signal: AbortSignal.timeout(15_000),
           });
         } catch {
           throw new BackendUnreachableError("Could not reach the server. Please try again.");

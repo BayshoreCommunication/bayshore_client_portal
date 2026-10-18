@@ -345,6 +345,40 @@ export const MAX_COMPETITORS = 5;
 
 export const EMAIL_PROVIDERS = ["Google Workspace (Gmail)", "Microsoft 365 (Outlook)", "My hosting company", "Other", NOT_SURE];
 
+// The goals' choices: the backend's key, and the words for it (models/client.model.ts — the
+// same choices as the steps right after signing up, clientstart/ClientSignup).
+export const GOAL_TIMEFRAMES = [
+  { value: "3_months", label: "3 months" },
+  { value: "6_months", label: "6 months" },
+  { value: "12_months", label: "12 months" },
+  { value: "unsure", label: "Not sure" },
+];
+export const GOAL_BUDGETS = [
+  { value: "under_1000", label: "Under $1,000" },
+  { value: "1000_3000", label: "$1k–$3k" },
+  { value: "3000_5000", label: "$3k–$5k" },
+  { value: "5000_10000", label: "$5k–$10k" },
+  { value: "over_10000", label: "$10k+" },
+  { value: "unsure", label: "Not sure yet" },
+];
+// The numbers the goals ask for, today and as wanted: the answer's key, and how it is asked.
+export const GOAL_TARGETS = [
+  { id: "goal.rev", title: "Revenue per month", about: "How much money your business brings in each month, before expenses. A rough average is fine.", money: true, now: "50000", goal: "100000" },
+  { id: "goal.leads", title: "Leads per month", about: "Everyone who reaches out: phone calls, website forms, emails and messages.", money: false, now: "20", goal: "40" },
+  { id: "goal.clients", title: "New clients per month", about: "Leads who sign with you or become paying customers.", money: false, now: "6", goal: "12" },
+];
+
+// The most services or areas the backend keeps.
+const MAX_LIST_ITEMS = 50;
+
+// A list typed as one line, separated by commas.
+export const listOf = (line: string) =>
+  line
+    .split(",")
+    .map((entry) => entry.trim())
+    .filter(Boolean)
+    .slice(0, MAX_LIST_ITEMS);
+
 // ── The steps ────────────────────────────────────────────────────────────────
 
 export type StepId = "contact" | "web" | "domain" | "email" | "logo" | "google" | "social" | "media";
@@ -459,8 +493,42 @@ export const toBackend = (answers: Answers, competitors: Competitor[], pages: st
   });
   const media = (id: string): OnboardingMedia => ({ mode: choice(`${id}.mode`), link: text(`${id}.link`), notes: text(`${id}.notes`) });
   const accounts = Number(text("mail.n"));
+  // A count or an amount of money: 0 or more, or not answered.
+  const amount = (key: string) => {
+    const value = Number(text(key) ?? NaN);
+    return Number.isFinite(value) && value >= 0 ? value : undefined;
+  };
+  const target = (key: string) => {
+    const pair = { current: amount(`${key}.now`), goal: amount(`${key}.goal`) };
+    return pair.current === undefined && pair.goal === undefined ? undefined : pair;
+  };
+  // What signing up asked that this form doesn't (the services, the main contact, what leads
+  // cost and come from) is sent back as it came, so saving these sections doesn't clear it.
+  const contact = {
+    isAccountOwner: typeof answers["biz.c.owner"] === "boolean" ? answers["biz.c.owner"] : undefined,
+    name: text("biz.c.name"),
+    email: text("biz.c.email"),
+    phone: text("biz.c.phone"),
+    reachBy: choice<"email" | "phone" | "text">("biz.c.reach"),
+  };
 
   return {
+    business: {
+      description: text("biz.desc"),
+      services: listOf(text("biz.services") ?? ""),
+      areas: listOf(text("biz.areas") ?? ""),
+      contact: Object.values(contact).some((value) => value !== undefined) ? contact : undefined,
+    },
+    goals: {
+      revenue: target("goal.rev"),
+      leads: target("goal.leads"),
+      newClients: target("goal.clients"),
+      timeframe: choice("goal.time"),
+      budget: choice("goal.budget"),
+      costPerLead: amount("goal.cpl"),
+      clientValue: amount("goal.value"),
+      leadSources: listOf(text("goal.sources") ?? "") as NonNullable<OnboardingAnswers["goals"]>["leadSources"],
+    },
     website: {
       url: text("web.url"),
       hasNone: flag("web.none"),
@@ -510,7 +578,26 @@ export const fromBackend = (stored: Onboarding): { answers: Answers; competitors
   };
   const yesNo = (value?: boolean) => (value === undefined ? undefined : value ? "yes" : "no");
 
-  const { website, domain, hosting, cms, email, logo } = saved;
+  const { business, goals, website, domain, hosting, cms, email, logo } = saved;
+  put("biz.desc", business?.description);
+  put("biz.services", business?.services?.join(", "));
+  put("biz.areas", business?.areas?.join(", "));
+  put("biz.c.owner", business?.contact?.isAccountOwner);
+  put("biz.c.name", business?.contact?.name);
+  put("biz.c.email", business?.contact?.email);
+  put("biz.c.phone", business?.contact?.phone);
+  put("biz.c.reach", business?.contact?.reachBy);
+  put("goal.rev.now", goals?.revenue?.current);
+  put("goal.rev.goal", goals?.revenue?.goal);
+  put("goal.leads.now", goals?.leads?.current);
+  put("goal.leads.goal", goals?.leads?.goal);
+  put("goal.clients.now", goals?.newClients?.current);
+  put("goal.clients.goal", goals?.newClients?.goal);
+  put("goal.time", goals?.timeframe);
+  put("goal.budget", goals?.budget);
+  put("goal.cpl", goals?.costPerLead);
+  put("goal.value", goals?.clientValue);
+  put("goal.sources", goals?.leadSources?.join(","));
   put("web.url", website?.url);
   put("web.none", website?.hasNone);
   put("web.need", website?.need);

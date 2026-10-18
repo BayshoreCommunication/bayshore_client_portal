@@ -1,8 +1,14 @@
 "use server";
 
 import { AuthError, CredentialsSignin } from "next-auth";
+import { decode } from "next-auth/jwt";
+import { cookies } from "next/headers";
+import { redirect } from "next/navigation";
 import { auth, signIn, signOut } from "@/auth";
+import { firstShownPage, isPageShown } from "@/component/layout/portalPages";
 import { BACKEND_API_URL } from "@/lib/backend";
+import { portalMenusFor } from "@/lib/portal-menus";
+import { sessionCookieName } from "@/lib/session-cookie";
 
 export type SignInState = { error?: string } | undefined;
 
@@ -12,14 +18,16 @@ export async function signInAction(
 ): Promise<SignInState> {
   const identifier = formData.get("identifier");
   const password = formData.get("password");
-  const callbackUrl = (formData.get("callbackUrl") as string) || "/dashboard";
+  // Only a page of this portal: never another site.
+  const asked = formData.get("callbackUrl");
+  const callbackUrl = typeof asked === "string" && asked.startsWith("/") && !asked.startsWith("//") ? asked : "/dashboard";
 
   if (typeof identifier !== "string" || typeof password !== "string" || !identifier || !password) {
     return { error: "Email/phone and password are required." };
   }
 
   try {
-    await signIn("credentials", { identifier, password, redirectTo: callbackUrl });
+    await signIn("credentials", { identifier, password, redirect: false });
   } catch (error) {
     if (error instanceof CredentialsSignin && error.code === "backend-unreachable") {
       return { error: "Could not reach the server. Please try again in a moment." };
@@ -32,6 +40,21 @@ export async function signInAction(
     }
     throw error;
   }
+
+  redirect(await landingFor(callbackUrl));
+}
+
+// Where a client lands once signed in: the page they asked for if they are shown it, or else the
+// first page they are. Sent to a page they aren't shown (a client who signed up themselves has
+// no dashboard), that page would redirect again inside this same response — and the form was
+// left on "Signing in…". The session was only just set, so it is read from its cookie here:
+// auth() doesn't see it until the next request.
+async function landingFor(callbackUrl: string): Promise<string> {
+  const name = sessionCookieName(process.env.NODE_ENV === "production");
+  const value = (await cookies()).get(name)?.value;
+  const token = value ? await decode({ token: value, secret: process.env.AUTH_SECRET as string, salt: name }).catch(() => null) : null;
+  const menus = typeof token?.accessToken === "string" ? await portalMenusFor(token.accessToken) : null;
+  return isPageShown(callbackUrl, menus) ? callbackUrl : firstShownPage(menus);
 }
 
 // Signs a new client in at the end of the steps they go through after creating their account

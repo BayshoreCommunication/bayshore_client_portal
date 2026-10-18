@@ -64,8 +64,35 @@ export interface OnboardingMedia {
   notes?: string;
 }
 
+// A number per month as it is today, and as they want it.
+export interface OnboardingTarget {
+  current?: number;
+  goal?: number;
+}
+
 // The form's sections. Every answer is optional — a missing one means "not answered".
 export interface OnboardingAnswers {
+  // About the business, and where it works. Also asked right after signing up
+  // (clientstart/ClientSignup), which asks the services and the main contact too.
+  business?: {
+    description?: string;
+    services?: string[];
+    areas?: string[];
+    contact?: { isAccountOwner?: boolean; name?: string; email?: string; phone?: string; reachBy?: "email" | "phone" | "text" };
+  };
+  // Where the business is now and where it wants to be. Money is in US dollars.
+  goals?: {
+    revenue?: OnboardingTarget;
+    leads?: OnboardingTarget;
+    newClients?: OnboardingTarget;
+    timeframe?: "3_months" | "6_months" | "12_months" | "unsure";
+    budget?: "under_1000" | "1000_3000" | "3000_5000" | "5000_10000" | "over_10000" | "unsure";
+    costPerLead?: number;
+    clientValue?: number;
+    leadSources?: ("referrals" | "google_search" | "google_maps" | "paid_ads" | "social_media" | "other")[];
+  };
+  // Whether they say they booked the kickoff call, at the end of signing up.
+  kickoffCall?: { booked?: boolean };
   website?: {
     url?: string;
     hasNone?: boolean;
