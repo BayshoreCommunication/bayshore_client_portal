@@ -44,10 +44,24 @@ export interface MyService {
   updatedAt: string;
 }
 
+// A service the client's team set up for them on their record (the company portal's client
+// form): its quantities and prices under their labels, what it covers, and its monthly cost.
+export interface MyServicePlan {
+  name: string;
+  fields: { label: string; value: number }[];
+  monthly: number;
+  included: string[];
+}
+
 export interface MyServicesData {
   services: MyService[];
-  // The client's monthly payment: the sum of their services.
+  // The client's monthly payment for those catalog services.
   monthlyTotal: number;
+  // The services on their record, what those come to a month, and any never priced there.
+  // Missing from a backend that doesn't send them yet.
+  plans?: MyServicePlan[];
+  planTotal?: number;
+  unpriced?: string[];
 }
 
 // A service to add: its id and the ids of the sub-services wanted.

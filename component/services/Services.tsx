@@ -20,7 +20,7 @@ import {
   X,
   type LucideIcon,
 } from "lucide-react";
-import type { CatalogService, MyService, MyServicesData, ServicePlan } from "@/app/actions/service";
+import type { CatalogService, MyService, MyServicePlan, MyServicesData, ServicePlan } from "@/app/actions/service";
 import { poppins } from "@/component/shared/fonts";
 import { useServiceCart, type ServiceCart } from "./cart";
 import { SERVICE_PLANS, SERVICE_PLAN_KEYS, dollars, plural, serviceColorOf, serviceIconOf } from "./serviceUi";
@@ -157,6 +157,64 @@ const MyServiceCard = ({ entry, icon: Icon, more, onMore }: { entry: MyService; 
   </div>
 );
 
+// A service the client's team set up for them on their record: what it is, its quantities and
+// prices, what it covers, and what it costs a month — as their client page in the company portal
+// shows it. A field with a price or a fee in its name is in dollars.
+const PLAN_COLOR = "#2f5fd8";
+const PlanCard = ({ plan }: { plan: MyServicePlan }) => (
+  <div className={`${cardClass} flex flex-col p-4.5`}>
+    <div className="flex items-start gap-3">
+      <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg text-white" style={{ background: PLAN_COLOR }}>
+        <Layers size={18} strokeWidth={2} />
+      </span>
+      <div className="min-w-0 flex-1">
+        <div className="truncate text-[14px] font-semibold text-[#0b0c24]" title={plan.name}>
+          {plan.name}
+        </div>
+        <div className="mt-1.5">
+          <span className="inline-flex items-center gap-1.5 rounded-md bg-[#d6eadb] px-2 py-0.5 text-[11px] font-medium text-[#15803d]">
+            <span className="h-1.5 w-1.5 rounded-full bg-[#16a34a]" />
+            Active
+          </span>
+        </div>
+      </div>
+      {/* A service on the record that was never priced there has no price to show yet. */}
+      {plan.monthly || plan.fields.length ? (
+        <div className="shrink-0 text-right whitespace-nowrap">
+          <span className="text-[17px] font-semibold text-[#0b0c24]">{dollars(plan.monthly)}</span>
+          <span className="text-[11px] text-[#6b7280]">/mo</span>
+        </div>
+      ) : (
+        <span className="shrink-0 text-[11.5px] text-[#6b7280]">Price being set up</span>
+      )}
+    </div>
+    {plan.fields.length ? (
+      <div className="mt-3 flex flex-wrap gap-1.5">
+        {plan.fields.map((field) => (
+          <span key={field.label} className="rounded-md bg-[#f3f4f6] px-2 py-1 text-[11px] text-[#4b5260]">
+            {field.label}: <b className="font-semibold text-[#0b0c24]">{/price|fee/i.test(field.label) ? dollars(field.value) : field.value}</b>
+          </span>
+        ))}
+      </div>
+    ) : null}
+    {plan.included.length ? (
+      <div className="mt-3.5 border-t border-[#eef0f2] pt-3">
+        <div className="mb-2 text-[11px] font-medium text-[#6b7280]">What we do for you · {plural(plan.included.length, "item")}</div>
+        <ul className="flex list-none flex-col gap-1.5">
+          {plan.included.map((item) => (
+            <li key={item} className="flex items-center gap-2 text-[12px]">
+              <span className="flex h-4.5 w-4.5 shrink-0 items-center justify-center rounded-full bg-[#d6eadb] text-[#15803d]">
+                <Check size={11} strokeWidth={3} />
+              </span>
+              <span className="min-w-0 flex-1 text-[#1f2530]">{item}</span>
+            </li>
+          ))}
+        </ul>
+      </div>
+    ) : null}
+  </div>
+);
+
 // A service BayShore offers that the client doesn't take: what it is, what is in it, and what
 // it costs a month. Only to read — there is nothing on it to tick.
 const OfferCard = ({ service, icon: Icon }: { service: CatalogService; icon: LucideIcon }) => (
@@ -232,7 +290,16 @@ const Services = ({
   const { cart: picks, setCart: setPicks } = useServiceCart();
   const [confirming, setConfirming] = useState(false);
 
-  const monthlyTotal = mine?.monthlyTotal ?? 0;
+  // The services on the client's record (see PlanCard), beside the catalog ones they take.
+  const plans = mine?.plans ?? [];
+  const unpriced = mine?.unpriced ?? [];
+  const monthlyTotal = (mine?.monthlyTotal ?? 0) + (mine?.planTotal ?? 0);
+  const serviceCount = (mine?.services.length ?? 0) + plans.length + unpriced.length;
+  // Each thing paid for each month, for "Where Your Payment Goes".
+  const payments = [
+    ...plans.map((plan) => ({ key: `plan-${plan.name}`, name: plan.name, amount: plan.monthly, color: PLAN_COLOR })),
+    ...(mine?.services ?? []).map((entry) => ({ key: entry._id, name: entry.service.title, amount: entry.monthlyPrice, color: serviceColorOf(entry.service) })),
+  ];
 
   // Every service on offer with what the client has of it. Without the catalog,
   // only their own services can be listed (with just the sub-services they take).
@@ -273,8 +340,8 @@ const Services = ({
   const pickedCount = picked.reduce((sum, row) => sum + tickedOf(row).length, 0);
   const pickedTotal = picked.reduce((sum, row) => sum + priceOf(row.service, tickedOf(row)), 0);
 
-  const myCount = rows.filter((row) => row.included.length > 0).length;
-  const includedCount = rows.reduce((sum, row) => sum + row.included.length, 0);
+  const myCount = rows.filter((row) => row.included.length > 0).length + plans.length + unpriced.length;
+  const includedCount = rows.reduce((sum, row) => sum + row.included.length, 0) + plans.reduce((sum, plan) => sum + plan.included.length, 0);
   // What is on offer that the client has none of.
   const others = rows.filter((row) => row.included.length === 0);
   const availableCount = others.length;
@@ -367,14 +434,14 @@ const Services = ({
                 title="Your Services"
                 sub="What BayShore Communication is doing for you right now."
                 aside={
-                  mine.services.length ? (
+                  serviceCount ? (
                     <>
-                      {plural(mine.services.length, "service")} · <span className="font-semibold text-[#0b0c24]">{dollars(monthlyTotal)}</span> a month
+                      {plural(serviceCount, "service")} · <span className="font-semibold text-[#0b0c24]">{dollars(monthlyTotal)}</span> a month
                     </>
                   ) : null
                 }
               />
-              {mine.services.length === 0 ? (
+              {serviceCount === 0 ? (
                 <div className={`${cardClass} flex flex-col items-center px-5 py-9 text-center`}>
                   <div className="mb-3 flex h-12 w-12 items-center justify-center rounded-2xl bg-[#d9e0ef] text-[#2f5fd8]">
                     <Layers size={22} strokeWidth={1.8} />
@@ -386,10 +453,17 @@ const Services = ({
                 </div>
               ) : (
                 <div className="grid grid-cols-1 items-start gap-3.5 md:grid-cols-2">
+                  {plans.map((plan) => (
+                    <PlanCard key={plan.name} plan={plan} />
+                  ))}
                   {mine.services.map((entry) => {
                     const row = rows.find(({ service }) => service._id === entry.service._id);
                     return <MyServiceCard key={entry._id} entry={entry} icon={serviceIconOf(entry.service)} more={browse && row ? row.service.subServices.length - row.included.length : 0} onMore={() => showInList(entry.service._id)} />;
                   })}
+                  {/* On the record, but not priced there yet. */}
+                  {unpriced.map((name) => (
+                    <PlanCard key={`unpriced-${name}`} plan={{ name, fields: [], monthly: 0, included: [] }} />
+                  ))}
                 </div>
               )}
 
@@ -724,29 +798,25 @@ const Services = ({
                     <div className="mt-0.5 text-[11px] text-[#6b7280]">{dollars(monthlyTotal)} a month</div>
                   </div>
                 </div>
-                {mine.services.length === 0 ? (
+                {payments.length === 0 ? (
                   <div className="py-1 text-[12px] leading-normal text-[#6b7280]">{browse ? "Nothing yet — tick a service in the list to add it." : "Nothing yet — your services will show here once they are set up."}</div>
                 ) : (
                   <div className="flex flex-col gap-3.5">
-                    {mine.services.map((entry) => (
-                      <div key={entry._id}>
+                    {payments.map((entry) => (
+                      <div key={entry.key}>
                         <div className="mb-1.5 flex items-center justify-between gap-2 text-[12px]">
                           <span className="flex min-w-0 items-center gap-2 font-medium text-[#1f2530]">
-                            <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: serviceColorOf(entry.service) }} />
-                            <span className="truncate" title={entry.service.title}>
-                              {entry.service.title}
+                            <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: entry.color }} />
+                            <span className="truncate" title={entry.name}>
+                              {entry.name}
                             </span>
                           </span>
                           <span className="shrink-0 text-[#4b5260]">
-                            <span className="font-semibold text-[#0b0c24]">{dollars(entry.monthlyPrice)}</span> ·{" "}
-                            {monthlyTotal ? Math.round((entry.monthlyPrice / monthlyTotal) * 100) : 0}%
+                            <span className="font-semibold text-[#0b0c24]">{dollars(entry.amount)}</span> · {monthlyTotal ? Math.round((entry.amount / monthlyTotal) * 100) : 0}%
                           </span>
                         </div>
                         <div className="h-2 overflow-hidden rounded-full bg-[#f3f4f6]">
-                          <div
-                            className="h-full rounded-full"
-                            style={{ width: `${monthlyTotal ? (entry.monthlyPrice / monthlyTotal) * 100 : 0}%`, background: serviceColorOf(entry.service) }}
-                          />
+                          <div className="h-full rounded-full" style={{ width: `${monthlyTotal ? (entry.amount / monthlyTotal) * 100 : 0}%`, background: entry.color }} />
                         </div>
                       </div>
                     ))}
