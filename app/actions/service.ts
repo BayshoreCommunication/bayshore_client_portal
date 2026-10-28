@@ -51,6 +51,8 @@ export interface MyServicePlan {
   fields: { label: string; value: number }[];
   monthly: number;
   included: string[];
+  // Made by their team for them (not one from the catalog).
+  custom?: boolean;
 }
 
 export interface MyServicesData {
@@ -62,6 +64,11 @@ export interface MyServicesData {
   plans?: MyServicePlan[];
   planTotal?: number;
   unpriced?: string[];
+  // Paid once, not each month (a logo designed for them), and what those come to.
+  oneTime?: { name: string; price: number; detail?: string }[];
+  // What the client asked for from the Services page.
+  requests?: ServiceRequest[];
+  oneTimeTotal?: number;
 }
 
 // A service to add: its id and the ids of the sub-services wanted.
@@ -190,6 +197,32 @@ export async function getServiceOrderAction(sessionId: string): Promise<ServiceA
 
     // No revalidatePath here: the payment page calls this while it renders, where
     // that isn't allowed — and the Services page reads fresh data on every visit anyway.
+    const { data } = await response.json();
+    return { ok: true, data };
+  } catch {
+    return NETWORK_ERROR;
+  }
+}
+
+// A service the client asked for from this page, and whether the team has added it yet.
+export interface ServiceRequest {
+  name: string;
+  status: "open" | "added";
+  requestedAt: string;
+}
+
+// Asks for a service (or anything else, `service` null): kept on the client's record for their
+// team, who add it as a service — and sent to their account manager as a message too.
+export async function requestServiceAction(service: string | null, note?: string): Promise<ServiceActionResult<{ requests: ServiceRequest[] }>> {
+  const accessToken = await token();
+  if (!accessToken) return NOT_SIGNED_IN;
+  try {
+    const response = await fetch(`${API}/requests`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ ...(service ? { service } : {}), ...(note?.trim() ? { note: note.trim() } : {}) }),
+    });
+    if (!response.ok) return failure(response, "Couldn't send your request. Please try again.");
     const { data } = await response.json();
     return { ok: true, data };
   } catch {

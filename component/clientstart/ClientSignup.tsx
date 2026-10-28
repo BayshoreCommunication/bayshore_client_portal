@@ -1,20 +1,21 @@
 "use client";
 
-import { Fragment, useEffect, useRef, useState, type InputHTMLAttributes, type MouseEvent, type ReactNode } from "react";
-import Link from "next/link";
+import { Fragment, useEffect, useRef, useState, type InputHTMLAttributes, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { AnimatePresence, MotionConfig, motion, type HTMLMotionProps } from "framer-motion";
-import { Eye, EyeOff } from "lucide-react";
 import { enterPortalAction, saveSignupAnswersAction, signUpAction, type SignupAnswers } from "@/app/actions/auth";
-import { poppins } from "@/component/shared/fonts";
+import { fraunces, poppins } from "@/component/shared/fonts";
+import { BOOKING_URL } from "@/lib/booking";
+import { ButtonArrow, Logo, WelcomeShell, suButtonClass, suFocusRing, suInputClass, suInputState } from "@/component/clientstart/WelcomeShell";
 
 // A new client's way in, all of it on the front page: first the account, then — still on this
 // page, and not signed in — five short steps, one at a time: the business, its goals, its
 // website, its online accounts, and booking the kickoff call. Once those are done they are
 // signed in, with the account they made at the start, and taken to their onboarding form. Each
 // step is saved onto their record as it is finished (app/actions/auth.ts →
-// saveSignupAnswersAction), and all of them once more at the end. Built from the "BayShore Client
-// Onboarding" mockup. The page itself forgets on a reload: the answers already saved stay on the record, but
+// saveSignupAnswersAction), and all of them once more at the end. The steps are built from the
+// "BayShore Client Onboarding" mockup, the create-account screen from the "bayshore-signup-v3"
+// design. The page itself forgets on a reload: the answers already saved stay on the record, but
 // the page starts again from the first screen. The call itself is booked on a Google Calendar
 // appointment schedule, shown inside the last step.
 
@@ -30,14 +31,6 @@ const STEPS: { id: StepId; label: string; minutes: number }[] = [
   { id: "website", label: "Website", minutes: 1 },
   { id: "accounts", label: "Accounts", minutes: 1 },
   { id: "book", label: "Book call", minutes: 1 },
-];
-
-const SIGNUP_STEPS = [
-  ["Tell us about your business", "2 min"],
-  ["Set your growth goals", "1 min"],
-  ["Your website", "1 min"],
-  ["Your online accounts", "1 min"],
-  ["Book your kickoff call", "1 min"],
 ];
 
 // Every typed answer, under the id of its field.
@@ -105,16 +98,12 @@ const ACCTS: { group: AccountGroup; key: string; name: string; placeholder: stri
   { group: "Local", key: "gbp", name: "Google Business Profile", placeholder: "Business name as it shows on Google Maps" },
   { group: "Social", key: "fb", name: "Facebook Page", placeholder: "facebook.com/…" },
   { group: "Social", key: "ig", name: "Instagram", placeholder: "@username" },
-  { group: "Social", key: "x", name: "Twitter / X", placeholder: "@username" },
   { group: "Social", key: "li", name: "LinkedIn Company Page", placeholder: "linkedin.com/company/…" },
   { group: "Tracking", key: "ga", name: "Google Analytics", placeholder: null },
   { group: "Tracking", key: "gsc", name: "Google Search Console", placeholder: null },
   { group: "Ads", key: "gads", name: "Google Ads", placeholder: "Customer ID (optional)" },
   { group: "Ads", key: "meta", name: "Meta Ads (Facebook / Instagram)", placeholder: "Ad account ID (optional)" },
 ];
-
-// The Google Calendar appointment schedule the kickoff call is booked on.
-const BOOKING_URL = "https://calendar.google.com/calendar/appointments/schedules/AcZssZ3xiwhgZG7-JPeXm3m_pZVueFOj54UnDfxT_JWB3ixQ5v88SIsI-coqD6knMrZzf4k38WzCDkU2";
 
 // ── The answers ──────────────────────────────────────────────────────────────
 
@@ -226,7 +215,6 @@ const ACCOUNT_PLACE: Record<string, [section: "google" | "social", name: string]
   gads: ["google", "ads"],
   fb: ["social", "facebook"],
   ig: ["social", "instagram"],
-  x: ["social", "x"],
   li: ["social", "linkedin"],
   meta: ["social", "metaAds"],
 };
@@ -266,13 +254,15 @@ const toBackend = (s: State, steps: StepId[]): SignupAnswers => {
     };
   }
   if (steps.includes("website")) {
+    // A domain is only asked about when we are to build the website. Otherwise it goes as
+    // empty, so a domain given before they changed their mind doesn't stay on the record.
+    answers.domain = {};
     if (s.pick["w-has"] === "yes") {
       // Keeping the site as it is means no new one is needed.
       answers.website = { url: text("w-url"), need: { keep: "no", redesign: "redesign", unsure: "unsure" }[s.pick["w-plan"] ?? ""] };
     } else if (s.pick["w-has"] === "no") {
       const build = s.pick["w-build"] === "yes";
       answers.website = { hasNone: true, need: build ? "new" : s.pick["w-build"] === "no" ? "no" : undefined };
-      // A domain is only asked about when we are to build the website.
       if (build && s.pick["w-dom"]) {
         const owns = s.pick["w-dom"] === "yes";
         answers.domain = { has: s.pick["w-dom"], name: owns ? text("w-domain") : undefined, platform: owns ? text("w-registrar") : undefined };
@@ -490,15 +480,6 @@ const Icon = ({ name, className = "size-4.5" }: { name: IconName; className?: st
   <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth={1.7} strokeLinecap="round" strokeLinejoin="round" className={`flex-none ${className}`}>
     {ICONS[name]}
   </svg>
-);
-
-// The name, as the way back to the front page. This flow is the front page, so mid-way
-// `onHome` is there to stop the link: it would only start the flow again.
-const Logo = ({ large = false, onHome }: { large?: boolean; onHome?: (event: MouseEvent<HTMLAnchorElement>) => void }) => (
-  <Link href="/" onClick={onHome} className={`block self-start font-serif leading-none font-bold text-white no-underline ${large ? "text-[28px]" : "text-[22px]"} ${focusRing}`}>
-    BayShore
-    <small className={`${poppins.className} mt-1.25 block text-[9px] font-medium tracking-[2.4px] text-[#a3b3bc] uppercase`}>Client&apos;s Portal</small>
-  </Link>
 );
 
 // Opens and closes its content by growing and shrinking.
@@ -789,6 +770,40 @@ const Foot = ({ flow, step, first = false }: { flow: Flow; step: FormStep; first
 
 // ── Create account ───────────────────────────────────────────────────────────
 
+// The first screen: the front door's look (WelcomeShell), with the form to create the account
+// in its card.
+
+// The five answers the account needs, in the order the ring beside the title counts them down.
+const SIGNUP_FIELDS = ["su-name", "su-phone", "su-email", "su-pw", "su-terms"];
+// What the ring says with that many of them given.
+const ETA_WORDS = ["min to go", "Nice start", "Keep going", "Keep going", "Almost there", "Ready!"];
+// The ring's length: 2π × its radius of 15.
+const RING = 94.25;
+// The password meter's colours: weak, fine, strong.
+const STRENGTH = ["#d9644a", "#d98b4a", "#2e7d5b"];
+
+const Tick = ({ className }: { className: string }) => (
+  <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth={3} strokeLinecap="round" strokeLinejoin="round" className={className}>
+    <path d="M5 12l5 5L20 7" />
+  </svg>
+);
+
+const SignupInput = ({
+  flow,
+  id,
+  label,
+  done,
+  className = "",
+  ...input
+}: { flow: Flow; id: FieldId; label: string; done: boolean; className?: string } & InputHTMLAttributes<HTMLInputElement>) => (
+  <Field error={flow.errors[id]} className={className}>
+    <label htmlFor={id} className="text-[13px] font-medium">
+      {label}
+    </label>
+    <input id={id} type="text" className={`${suInputClass} ${suInputState(done)}`} value={flow.s.f[id]} onChange={(event) => flow.setField(id, event.target.value)} {...input} />
+  </Field>
+);
+
 const SignupScreen = ({ flow }: { flow: Flow }) => {
   const { s, errors } = flow;
   const password = s.f["su-pw"];
@@ -797,104 +812,178 @@ const SignupScreen = ({ flow }: { flow: Flow }) => {
     [password.length >= 8, "8+ characters"],
     [/\d/.test(password), "1 number"],
   ];
+  // 1 once anything is typed, 2 once the rules are met, 3 when it is long or has a symbol too.
+  const strength = !password ? 0 : !rules.every(([met]) => met) ? 1 : password.length >= 12 || /[^A-Za-z0-9]/.test(password) ? 3 : 2;
+  // Each answer counts as given once it would pass the check Create account makes.
+  const problems = checkSignup(s);
+  const good = (id: string) => !problems[id];
+  const given = SIGNUP_FIELDS.filter(good).length;
+  const ready = given === SIGNUP_FIELDS.length;
 
   return (
-    // One card in the middle of the page: the steps ahead on the navy half, the form on the other.
-    <div className={`${cardClass} mx-auto grid max-w-240 grid-cols-2 overflow-hidden max-[700px]:grid-cols-1`}>
-      <div className="flex flex-col gap-6 bg-[#16212a] px-8.5 py-9 text-white max-[700px]:px-5.5 max-[700px]:py-6.5">
-        <Logo large />
-        <h2 className="text-[22px] leading-[1.3] font-semibold text-balance">Your marketing, reports and team in one place.</h2>
-        <motion.ol initial="hidden" animate="show" variants={{ show: { transition: { staggerChildren: 0.06, delayChildren: 0.1 } } }} className="flex flex-col gap-0.5 max-[700px]:hidden">
-          {SIGNUP_STEPS.map(([label, time], index) => (
-            <motion.li
-              key={label}
-              variants={{ hidden: { opacity: 0, x: -10 }, show: { opacity: 1, x: 0 } }}
-              transition={{ duration: 0.25, ease: "easeOut" }}
-              className="grid grid-cols-[26px_1fr_auto] items-center gap-2.5 border-t border-[#2d3f4b] py-2.25 text-[13.5px] first:border-t-0"
-            >
-              <span className="grid size-6 place-items-center rounded-full border border-[#b8892f] text-[11px] font-semibold text-[#e7c780]">{index + 1}</span>
-              <span>{label}</span>
-              <small className="text-[11.5px] text-[#a3b3bc] tabular-nums">{time}</small>
-            </motion.li>
-          ))}
-        </motion.ol>
-        <p className="mt-auto text-[12.5px] text-[#a3b3bc] max-[700px]:hidden">Your answers save as you go. You can stop and pick up where you left off.</p>
+    <WelcomeShell variant="signup" question="Already have an account?" linkHref="/sign-in" linkLabel="Log in">
+      <div className="mb-5.5 flex items-center justify-between gap-3">
+        <h2 className={`${fraunces.className} text-[23px] leading-[1.2] font-semibold text-[#0f2a3d]`}>Let&apos;s get your brand moving</h2>
+        {/* Counts the five minutes down as the answers are given. */}
+        <div aria-live="polite" className={`flex flex-none items-center gap-2 text-[12px] font-semibold whitespace-nowrap transition-colors duration-300 ${given >= 4 ? "text-[#2e7d5b]" : "text-[#667280]"}`}>
+          <div className="relative size-8.5">
+            <svg viewBox="0 0 36 36" aria-hidden="true" className="size-full -rotate-90">
+              <circle cx="18" cy="18" r="15" fill="none" strokeWidth={3.5} stroke="#ebe3d4" />
+              <circle
+                cx="18"
+                cy="18"
+                r="15"
+                fill="none"
+                strokeWidth={3.5}
+                strokeLinecap="round"
+                stroke={given >= 4 ? "#2e7d5b" : "#d98b4a"}
+                strokeDasharray={RING}
+                style={{ strokeDashoffset: RING - (RING * given) / SIGNUP_FIELDS.length }}
+                className="transition-[stroke-dashoffset,stroke] duration-500 ease-[cubic-bezier(.3,1.3,.5,1)]"
+              />
+            </svg>
+            <span className="absolute inset-0 grid place-items-center text-[10px] font-bold text-[#0f2a3d]">{ready ? "✓" : SIGNUP_FIELDS.length - given}</span>
+          </div>
+          <span>{ETA_WORDS[given]}</span>
+        </div>
       </div>
 
-      <div className="px-8.5 py-9 max-[700px]:px-5.5 max-[700px]:py-6.5">
-        <h1 className={`${titleClass} mb-2`}>Welcome to BayShore</h1>
-        <p className="mb-5.5 max-w-[62ch] text-[14.5px] text-[#5b6a72]">Create your account to get started. It takes about 5 minutes to set up.</p>
-        <form
-          noValidate
-          className="grid gap-4"
-          onSubmit={(event) => {
-            event.preventDefault();
-            flow.signUp();
-          }}
-        >
-          <TextField flow={flow} id="su-name" label="Full name" placeholder="e.g. David Carter" autoComplete="name" />
-          <TextField flow={flow} id="su-email" label="Work email" type="email" placeholder="you@yourfirm.com" autoComplete="email" />
-          <TextField flow={flow} id="su-phone" label="Phone number" type="tel" placeholder="(555) 123-4567" autoComplete="tel" />
-          <Field error={errors["su-pw"]}>
-            <label htmlFor="su-pw" className={labelClass}>
-              Password
-            </label>
-            {/* There is no second box to type it again in, so the eye is how to check it. */}
-            <div className="relative">
-              <input
-                id="su-pw"
-                type={showPassword ? "text" : "password"}
-                autoComplete="new-password"
-                className={`${inputClass} pr-11`}
-                value={password}
-                onChange={(event) => flow.setField("su-pw", event.target.value)}
-              />
-              <button
-                type="button"
-                aria-label={showPassword ? "Hide password" : "Show password"}
-                aria-pressed={showPassword}
-                onClick={() => setShowPassword((shown) => !shown)}
-                className={`absolute top-1/2 right-2 flex -translate-y-1/2 cursor-pointer rounded-md p-1.5 text-[#5b6a72] transition-colors duration-150 hover:text-[#1a252c] ${focusRing}`}
-              >
-                {showPassword ? <EyeOff size={17} strokeWidth={1.8} /> : <Eye size={17} strokeWidth={1.8} />}
-              </button>
-            </div>
-            <div className="flex flex-wrap gap-1.5">
-              {rules.map(([met, text]) => (
-                <span key={text} className={`inline-flex items-center gap-1 text-[12px] transition-colors duration-150 ${met ? "text-[#2f7d5b]" : "text-[#5b6a72]"}`}>
-                  {met ? "✓" : "○"} {text}
-                </span>
-              ))}
-            </div>
-          </Field>
-          <Field error={errors["su-terms"]}>
-            <label className="flex items-center gap-2.5 rounded-[10px] border border-[#e1e7e3] bg-[#f8faf9] px-3 py-2.5 text-[13.5px]">
-              <input id="su-terms" type="checkbox" checked={s.terms} onChange={(event) => flow.patch({ terms: event.target.checked })} className="size-[17px] flex-none accent-[#b8892f]" />
-              <span>
-                I agree to the{" "}
-                <a href="https://example.com/terms" target="_blank" rel="noopener" className="text-[#7a5a17] underline">
-                  Terms
-                </a>{" "}
-                and{" "}
-                <a href="https://example.com/privacy" target="_blank" rel="noopener" className="text-[#7a5a17] underline">
-                  Privacy Policy
-                </a>
+      <form
+        noValidate
+        className="grid grid-cols-2 gap-4 max-[640px]:grid-cols-1"
+        onSubmit={(event) => {
+          event.preventDefault();
+          flow.signUp();
+        }}
+      >
+        <SignupInput flow={flow} id="su-name" label="Full name" done={good("su-name")} placeholder="David Carter" autoComplete="name" />
+        <SignupInput flow={flow} id="su-phone" label="Phone" done={good("su-phone")} type="tel" placeholder="(555) 123-4567" autoComplete="tel" />
+        <SignupInput flow={flow} id="su-email" label="Work email" done={good("su-email")} type="email" placeholder="you@yourfirm.com" autoComplete="email" className="col-span-full" />
+
+        <Field error={errors["su-pw"]} className="col-span-full">
+          <label htmlFor="su-pw" className="text-[13px] font-medium">
+            Password
+          </label>
+          {/* There is no second box to type it again in, so Show is how to check it. */}
+          <div className="relative">
+            <input
+              id="su-pw"
+              type={showPassword ? "text" : "password"}
+              placeholder="Create a password"
+              autoComplete="new-password"
+              className={`${suInputClass} ${suInputState(good("su-pw"))} pr-17.5`}
+              value={password}
+              onChange={(event) => flow.setField("su-pw", event.target.value)}
+            />
+            <button
+              type="button"
+              aria-label={showPassword ? "Hide password" : "Show password"}
+              aria-pressed={showPassword}
+              onClick={() => setShowPassword((shown) => !shown)}
+              className={`absolute top-1/2 right-2 -translate-y-1/2 cursor-pointer rounded-lg bg-[#f4efe6] px-2.5 py-1.5 text-[12px] font-semibold text-[#0f2a3d] hover:bg-[#ebe3d4] ${suFocusRing}`}
+            >
+              {showPassword ? "Hide" : "Show"}
+            </button>
+          </div>
+          <div aria-hidden="true" className="mt-1 flex gap-1">
+            {STRENGTH.map((color, index) => (
+              <i key={color} className="h-1 flex-1 rounded bg-[#ebe3d4] transition-colors duration-300" style={index < strength ? { background: STRENGTH[strength - 1] } : undefined} />
+            ))}
+          </div>
+          <div className="mt-0.5 flex gap-4 text-[12px] text-[#667280]">
+            {rules.map(([met, text]) => (
+              <span key={text} className={`inline-flex items-center gap-1.5 transition-colors duration-200 ${met ? "text-[#2e7d5b]" : ""}`}>
+                <Tick className={`size-3.5 transition-[opacity,scale] duration-300 ${met ? "scale-120 opacity-100" : "opacity-35"}`} />
+                {text}
               </span>
-            </label>
-          </Field>
-          {errors["su-form"] ? (
-            <div role="alert" className="rounded-lg border border-[#f5c2c2] bg-[#fdecec] px-3.5 py-2.5 text-[12.5px] font-medium text-[#b42318]">
-              {errors["su-form"]}
-            </div>
-          ) : null}
-          <Btn type="submit" block disabled={flow.creating} aria-busy={flow.creating} className="disabled:cursor-wait disabled:opacity-70">
-            {flow.creating ? "Creating your account…" : "Create account"}
-          </Btn>
-        </form>
-      </div>
-    </div>
+            ))}
+          </div>
+        </Field>
+
+        <Field error={errors["su-terms"]} className="col-span-full">
+          <label className="flex cursor-pointer items-start gap-2.5 text-[14px] leading-[1.45] text-[#667280]">
+            <input id="su-terms" type="checkbox" checked={s.terms} onChange={(event) => flow.patch({ terms: event.target.checked })} className="mt-px size-4.5 flex-none accent-[#0f2a3d]" />
+            <span>
+              I agree to BayShore&apos;s{" "}
+              <a href="/terms" className="font-medium text-[#0f2a3d] underline underline-offset-3">
+                Terms
+              </a>{" "}
+              and{" "}
+              <a href="/privacy" className="font-medium text-[#0f2a3d] underline underline-offset-3">
+                Privacy Policy
+              </a>
+              .
+            </span>
+          </label>
+        </Field>
+
+        {errors["su-form"] ? (
+          <div role="alert" className="col-span-full rounded-lg border border-[#f5c2c2] bg-[#fdecec] px-3.5 py-2.5 text-[12.5px] font-medium text-[#b42318]">
+            {errors["su-form"]}
+          </div>
+        ) : null}
+
+        {/* A glint passes over it now and then; once everything is filled in it turns sea-blue and glows. */}
+        <button
+          type="submit"
+          disabled={flow.creating}
+          aria-busy={flow.creating}
+          className={`col-span-full ${suButtonClass(ready)}`}
+        >
+          {flow.creating ? (
+            "Creating your account…"
+          ) : (
+            <>
+              Start growing my brand
+              <ButtonArrow />
+            </>
+          )}
+        </button>
+
+        <div className="col-span-full mt-0.5 flex flex-wrap justify-center gap-4.5 text-[12px] text-[#667280]">
+          <span className="inline-flex items-center gap-1.5">
+            <svg width="14" height="14" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth={2}>
+              <rect x="4" y="10" width="16" height="11" rx="2" />
+              <path d="M8 10V7a4 4 0 018 0v3" />
+            </svg>
+            Secure &amp; encrypted
+          </span>
+          <span className="inline-flex items-center gap-1.5">
+            <svg width="14" height="14" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth={2}>
+              <path d="M12 8v4l3 2" />
+              <circle cx="12" cy="12" r="9" />
+            </svg>
+            Saves as you go
+          </span>
+        </div>
+      </form>
+    </WelcomeShell>
   );
 };
+
+// Confetti once the account is made: falls over the page as the first step comes in.
+type ConfettiPiece = { left: number; color: string; duration: number; delay: number };
+const CONFETTI_COLORS = ["#d98b4a", "#2e7d8c", "#0f2a3d", "#5fb3c1", "#f1d3b3"];
+const makeConfetti = (): ConfettiPiece[] =>
+  Array.from({ length: 80 }, (_, index) => ({
+    left: Math.random() * 100,
+    color: CONFETTI_COLORS[index % CONFETTI_COLORS.length],
+    duration: 1.8 + Math.random() * 1.6,
+    delay: Math.random() * 0.4,
+  }));
+
+const Confetti = ({ pieces }: { pieces: ConfettiPiece[] | null }) =>
+  pieces ? (
+    <div aria-hidden="true" className="pointer-events-none fixed inset-0 z-50 overflow-hidden motion-reduce:hidden">
+      {pieces.map((piece, index) => (
+        <i
+          key={index}
+          className="absolute -top-5 h-3 w-2 animate-[su-fall_linear_forwards] rounded-xs"
+          style={{ left: `${piece.left}vw`, background: piece.color, animationDuration: `${piece.duration}s`, animationDelay: `${piece.delay}s` }}
+        />
+      ))}
+    </div>
+  ) : null;
 
 // ── Step 1: the business ─────────────────────────────────────────────────────
 
@@ -1713,7 +1802,7 @@ const BookStep = ({ flow }: { flow: Flow }) => {
   const confirm = () => {
     flow.patch((now) => ({ booked: true, done: withStep(now.done, "book") }));
     flow.save(["book"], { booked: true });
-    flow.say("Your account manager was notified with your full summary.");
+    flow.say("Booked! A confirmation is on its way to your inbox.");
   };
 
   return (
@@ -1835,6 +1924,14 @@ const useFlow = (initial: State) => {
     return () => clearTimeout(timer);
   }, [toast]);
 
+  // Confetti once the account is made, cleared once it has fallen.
+  const [confetti, setConfetti] = useState<ConfettiPiece[] | null>(null);
+  useEffect(() => {
+    if (!confetti) return;
+    const timer = setTimeout(() => setConfetti(null), 4000);
+    return () => clearTimeout(timer);
+  }, [confetti]);
+
   const patch = (changes: Changes) => setS((now) => ({ ...now, ...(typeof changes === "function" ? changes(now) : changes) }));
   const setField = (id: FieldId, value: string) => patch((now) => ({ f: { ...now.f, [id]: value } }));
   const setPick = (group: Group, value: string) => {
@@ -1884,6 +1981,7 @@ const useFlow = (initial: State) => {
     // done its work, so it isn't kept.
     password.current = s.f["su-pw"];
     patch((now) => ({ f: { ...now.f, "su-pw": "", "b-cname": val(now, "su-name"), "b-cemail": val(now, "su-email"), "b-phone": val(now, "su-phone") } }));
+    setConfetti(makeConfetti());
     go("business");
   };
 
@@ -1974,7 +2072,7 @@ const useFlow = (initial: State) => {
   };
 
   const flow: Flow = { s, errors, patch, setField, setPick, go, next, skip, skipAll, back: () => go(prevOf(s.screen)), signUp, save, enter, entering, creating, say };
-  return { flow, root, toast };
+  return { flow, root, toast, confetti };
 };
 
 type Toast = { id: number; message: string };
@@ -2047,52 +2145,51 @@ const rootClass = `${poppins.className} text-[14px] leading-[1.55] text-[#1a252c
 // window to itself the whole way — no portal around it, and nobody signed in: the account is
 // made on the first screen, and logged in to once the steps are done.
 const ClientSignup = () => {
-  const { flow, root, toast } = useFlow(BLANK);
+  const { flow, root, toast, confetti } = useFlow(BLANK);
   const { s } = flow;
   const stepIndex = STEPS.findIndex((step) => step.id === s.screen);
   const minutesLeft = Math.ceil(STEPS.slice(Math.max(stepIndex, 0)).reduce((sum, step) => sum + step.minutes, 0));
 
   return (
     <MotionConfig reducedMotion="user">
-      <div ref={root} className={`${rootClass} min-h-screen w-full bg-[#f2f5f3]`}>
-        <header className="sticky top-0 z-20 bg-[#16212a] px-4 py-3.5 text-white">
-          <div className={`${widthClass} flex flex-wrap items-center justify-between gap-3`}>
-            {/* Mid-way the link stays put: going back to the first screen would throw the answers away. */}
-            <Logo onHome={stepIndex >= 0 ? (event) => event.preventDefault() : undefined} />
-            <div className="flex items-center gap-3 text-[13px] text-[#a3b3bc]">
-              {stepIndex >= 0 ? (
-                <span className="max-[700px]:hidden">
-                  Step {stepIndex + 1} of 5 · about {minutesLeft} min left
-                </span>
-              ) : (
-                // Creating the account: the way in for someone who already has one.
-                <span>Already have an account?</span>
-              )}
-              <Link
-                href="/sign-in"
-                className={`rounded-lg border border-[#2d3f4b] px-3.5 py-1.5 text-[12.5px] font-medium text-white no-underline transition-colors duration-150 hover:border-[#b8892f] hover:text-[#b8892f] ${focusRing}`}
-              >
-                Log in
-              </Link>
-            </div>
-          </div>
-        </header>
+      <div ref={root} className={`${rootClass} min-h-screen w-full ${s.screen === "signup" ? "bg-[#f4efe6]" : "bg-[#f2f5f3]"}`}>
+        {/* Creating the account is a page of its own, with its own header; the steps share the one below. */}
+        {s.screen === "signup" ? (
+          <SignupScreen flow={flow} />
+        ) : (
+          <>
+            {/* The account is made and they are on their way in, so there is no Log in here: just
+                where they are and how long is left. Held to the steps' own width below it. */}
+            <header className="sticky top-0 z-20 bg-[#16212a] px-4 py-3 text-white">
+              <div className={`${widthClass} flex items-center justify-between gap-3`}>
+                {/* Mid-way the link stays put: going back to the first screen would throw the answers away. */}
+                <Logo dark onHome={(event) => event.preventDefault()} />
+                <div className="flex items-center gap-3 text-[13px] text-[#a3b3bc]">
+                  <span className="max-[700px]:hidden">About {minutesLeft} min left</span>
+                  <span className="rounded-full bg-white/8 px-3 py-1.25 text-[12px] font-semibold whitespace-nowrap text-white ring-1 ring-white/15 tabular-nums">
+                    Step {stepIndex + 1} of 5
+                  </span>
+                </div>
+              </div>
+            </header>
 
-        {stepIndex >= 0 ? <StepsProgress s={s} go={flow.go} /> : null}
+            <StepsProgress s={s} go={flow.go} />
 
-        <main className="px-4 pt-8 pb-10">
-          <AnimatePresence mode="wait">
-            <motion.section key={s.screen} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -6 }} transition={{ duration: 0.2, ease: "easeOut" }} className={widthClass}>
-              {s.screen === "signup" ? <SignupScreen flow={flow} /> : null}
-              {s.screen === "business" ? <BusinessStep flow={flow} /> : null}
-              {s.screen === "goals" ? <GoalsStep flow={flow} /> : null}
-              {s.screen === "website" ? <WebsiteStep flow={flow} /> : null}
-              {s.screen === "accounts" ? <AccountsStep flow={flow} /> : null}
-              {s.screen === "book" ? <BookStep flow={flow} /> : null}
-            </motion.section>
-          </AnimatePresence>
-        </main>
+            <main className="px-4 pt-8 pb-10">
+              <AnimatePresence mode="wait">
+                <motion.section key={s.screen} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -6 }} transition={{ duration: 0.2, ease: "easeOut" }} className={widthClass}>
+                  {s.screen === "business" ? <BusinessStep flow={flow} /> : null}
+                  {s.screen === "goals" ? <GoalsStep flow={flow} /> : null}
+                  {s.screen === "website" ? <WebsiteStep flow={flow} /> : null}
+                  {s.screen === "accounts" ? <AccountsStep flow={flow} /> : null}
+                  {s.screen === "book" ? <BookStep flow={flow} /> : null}
+                </motion.section>
+              </AnimatePresence>
+            </main>
+          </>
+        )}
 
+        <Confetti pieces={confetti} />
         <ToastMessage toast={toast} />
       </div>
     </MotionConfig>

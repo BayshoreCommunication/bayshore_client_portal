@@ -33,6 +33,12 @@ export interface OnboardingFile {
 // A platform we need to get into: which one, and whether access has been given.
 interface OnboardingPlatform {
   platform?: string;
+  // Inviting our access email, or sharing the login itself.
+  access?: "invite" | "secure";
+  loginUsername?: string;
+  // Sent only when typed; the backend seals it, and sends back `loginPasswordSet` instead.
+  loginPassword?: string;
+  loginPasswordSet?: boolean;
   accessGiven?: boolean;
   needsHelp?: boolean;
 }
@@ -104,7 +110,9 @@ export interface OnboardingAnswers {
   };
   domain?: OnboardingPlatform & { has?: OnboardingHas; name?: string; wantsCreated?: boolean; wishlist?: string };
   hosting?: OnboardingPlatform & { has?: OnboardingHas; wantsCreated?: boolean };
-  cms?: OnboardingPlatform & { developer?: string };
+  // `has`: whether the website is built on a CMS at all. `giving`: with one, what they let us
+  // into — its dashboard, the hosting, or both.
+  cms?: OnboardingPlatform & { has?: "yes" | "no" | "unsure"; giving?: "cms" | "hosting" | "both"; developer?: string };
   // Their business email — not the contact's email, which sits beside the answers.
   email?: { has?: OnboardingYesNo; provider?: string; wantsCreated?: boolean; accounts?: number; addresses?: string };
   logo?: { has?: OnboardingYesNo; link?: string; files?: OnboardingFile[]; wantsCreated?: boolean; style?: string; styleFiles?: OnboardingFile[] };
@@ -328,6 +336,49 @@ export async function deleteOnboardingAction(): Promise<OnboardingActionResult<n
     if (response.ok || isOver(response.status)) await forget();
     if (!response.ok) return failure(response, "Couldn't delete your onboarding.");
     return { ok: true, data: null };
+  } catch {
+    return NETWORK_ERROR;
+  }
+}
+
+// ── Comments on the form ─────────────────────────────────────────────────────
+
+// A comment the client wrote on a step of their form, and the team's replies to it (backend:
+// models/onboardingComment.model.ts). Posting one carries files, so it goes through the upload
+// route (app/api/onboarding/comments/route.ts), not a server action.
+export interface OnboardingCommentFile {
+  url: string;
+  name: string;
+  size: number;
+  mimeType: string;
+}
+export interface OnboardingCommentReply {
+  _id: string;
+  authorName: string;
+  text: string;
+  files: OnboardingCommentFile[];
+  createdAt: string;
+}
+export interface OnboardingComment {
+  _id: string;
+  step: string;
+  // Who wrote it: the client, or their BayShore team. Missing means the client.
+  side?: "client" | "team";
+  authorName: string;
+  text: string;
+  files: OnboardingCommentFile[];
+  createdAt: string;
+  replies: OnboardingCommentReply[];
+}
+
+export async function listMyOnboardingCommentsAction(): Promise<OnboardingActionResult<OnboardingComment[]>> {
+  const session = await auth();
+  if (!session?.accessToken) return NOT_SIGNED_IN;
+  try {
+    const response = await fetch(`${API}/me/comments`, { headers: { Authorization: `Bearer ${session.accessToken}` }, cache: "no-store" });
+    if (!response.ok) return failure(response, "Couldn't load your comments.");
+    const { data } = (await response.json()) as { data: OnboardingComment[] };
+    return { ok: true, data };
   } catch {
     return NETWORK_ERROR;
   }

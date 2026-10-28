@@ -1,4 +1,4 @@
-import { Bell, CheckCircle2, Inbox, MessageSquareText, PencilLine, RotateCcw, type LucideIcon } from "lucide-react";
+import { Bell, Briefcase, CheckCircle2, FileText, Inbox, MessageCircle, MessageSquareText, PencilLine, RotateCcw, type LucideIcon } from "lucide-react";
 import type { NotificationType } from "@/app/actions/notifications";
 
 // What each kind of notification looks like — shared by the bell in the top bar and the
@@ -9,6 +9,10 @@ const KINDS: Record<NotificationType, Kind> = {
   content_sent: { label: "New content", icon: Inbox, color: "#2f5fd8", background: "#d9e0ef" },
   content_resubmitted: { label: "Updated content", icon: RotateCcw, color: "#d97706", background: "#f8e4c6" },
   content_comment: { label: "Reply", icon: MessageSquareText, color: "#7c3aed", background: "#e9e3fb" },
+  onboarding_comment: { label: "Onboarding comment", icon: MessageSquareText, color: "#2f5fd8", background: "#e8effd" },
+  message: { label: "Message", icon: MessageCircle, color: "#0891b2", background: "#d5eef3" },
+  report_published: { label: "New report", icon: FileText, color: "#16a34a", background: "#d2e7d8" },
+  project_created: { label: "New project", icon: Briefcase, color: "#c8811f", background: "#f5e3c9" },
   // The team's side of the conversation — listed so an unexpected one still looks right.
   content_feedback: { label: "Changes requested", icon: MessageSquareText, color: "#dc2626", background: "#f4d7db" },
   content_approved: { label: "Approved", icon: CheckCircle2, color: "#16a34a", background: "#d2e7d8" },
@@ -23,6 +27,10 @@ export const CLIENT_NOTIFICATIONS: { type: NotificationType; description: string
   { type: "content_sent", description: "BayShore sent you new content to review and approve." },
   { type: "content_resubmitted", description: "BayShore made the changes you asked for and sent the piece back." },
   { type: "content_comment", description: "BayShore replied to your comments on a piece." },
+  { type: "onboarding_comment", description: "BayShore commented or replied on your onboarding form." },
+  { type: "message", description: "BayShore sent you a message or set up a meeting." },
+  { type: "report_published", description: "A new performance report is ready to read." },
+  { type: "project_created", description: "BayShore started a new project for you." },
 ];
 
 // The backend keeps a notification this long (models/notification.model.ts), then deletes it.

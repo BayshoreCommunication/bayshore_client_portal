@@ -282,7 +282,6 @@ export const SOCIAL: Account[] = [
     steps: null,
     login: true,
   },
-  { id: "x", name: "X (Twitter)", short: "X (Twitter)", placeholder: "@yourbusiness", steps: null, login: true },
   // The email account itself, signed in to like the ones above. The address is its login, so no link is asked for.
   { id: "em", name: "Email", short: "Email", steps: null, login: true, loginLabel: "Email address", question: "Do you have any personal email for credential purposes?", yesOrNo: true },
 ];
@@ -397,15 +396,15 @@ export const STEPS: { id: StepId; title: string; heading: string; sub: string }[
 // The steps that ask the client to invite the access email — where its card is shown.
 export const EMAIL_STEPS: StepId[] = ["domain", "google", "social"];
 
-// The items each step asks about, in order. The website login is skipped without a website.
-export const itemsOf = (step: StepId, answers: Answers): string[] => {
+// The items each step asks about, in order. Every one is always asked, whatever the answers.
+export const itemsOf = (step: StepId): string[] => {
   switch (step) {
     case "contact":
       return ["contact"];
     case "web":
       return ["website"];
     case "domain":
-      return ["domain", "hosting", ...(answers["web.none"] === true ? [] : ["cms"])];
+      return ["domain", "hosting", "cms"];
     case "email":
       return ["email"];
     case "logo":
@@ -446,7 +445,8 @@ export const contactProblem = (answers: Answers): string | null => {
 
 // The form's own names for the accounts and media, against the backend's.
 const GOOGLE_FIELDS = { gbp: "businessProfile", ga: "analytics", gsc: "searchConsole", gtm: "tagManager", gads: "ads" } as const;
-const SOCIAL_FIELDS = { fb: "facebook", ig: "instagram", yt: "youtube", li: "linkedin", tt: "tiktok", x: "x", em: "email" } as const;
+// X (Twitter) is no longer asked: what a client gave for it before stays on their record, untouched.
+const SOCIAL_FIELDS = { fb: "facebook", ig: "instagram", yt: "youtube", li: "linkedin", tt: "tiktok", em: "email" } as const;
 const MEDIA_FIELDS = { pphotos: "professionalPhotos", bphotos: "businessPhotos", videos: "videos" } as const;
 
 // What a client isn't asked until the team turns it on: every step but who they are, their
@@ -483,7 +483,7 @@ export const toBackend = (answers: Answers, competitors: Competitor[], pages: st
     // An account we get into with its own login has no other way of giving access to choose.
     access: answers[`${id}.has`] === "yes" && SOCIAL.some((account) => account.id === id && account.login) ? "secure" : choice(`${id}.access`),
     loginUsername: text(`${id}.username`),
-    connected: answers[`${id}.has`] === "yes" ? flag(`${id}.connected`) : undefined,
+    connected: flag(`${id}.connected`),
     accessGiven: flag(`${id}.done`),
     needsHelp: flag(`${id}.help`),
     // Where a no is the whole answer, nothing is to be created: the record says so, for the team.
@@ -492,6 +492,13 @@ export const toBackend = (answers: Answers, competitors: Competitor[], pages: st
     ...(typeof answers[`${id}.password`] === "string" && answers[`${id}.password`] !== "" ? { loginPassword: answers[`${id}.password`] as string } : {}),
   });
   const media = (id: string): OnboardingMedia => ({ mode: choice(`${id}.mode`), link: text(`${id}.link`), notes: text(`${id}.notes`) });
+  // How they let us into a platform (the domain, hosting, the website's login): an invite to our
+  // email, or the login itself — the password only when typed just now.
+  const login = (id: string) => ({
+    access: choice<"invite" | "secure">(`${id}.access`),
+    loginUsername: answers[`${id}.access`] === "secure" ? text(`${id}.username`) : undefined,
+    ...(answers[`${id}.access`] === "secure" && typeof answers[`${id}.password`] === "string" && answers[`${id}.password`] !== "" ? { loginPassword: answers[`${id}.password`] as string } : {}),
+  });
   const accounts = Number(text("mail.n"));
   // A count or an amount of money: 0 or more, or not answered.
   const amount = (key: string) => {
@@ -542,13 +549,22 @@ export const toBackend = (answers: Answers, competitors: Competitor[], pages: st
       has: choice("dom.has"),
       name: text("dom.name"),
       platform: text("dom.platform"),
+      ...login("dom"),
       accessGiven: flag("dom.done"),
       needsHelp: flag("dom.help"),
       wantsCreated: wants("dom.create"),
       wishlist: text("dom.wish"),
     },
-    hosting: { has: choice("host.has"), platform: text("host.platform"), accessGiven: flag("host.done"), needsHelp: flag("host.help"), wantsCreated: wants("host.create") },
-    cms: { platform: text("cms.platform"), developer: text("cms.dev"), accessGiven: flag("cms.done"), needsHelp: flag("cms.help") },
+    hosting: { has: choice("host.has"), platform: text("host.platform"), ...login("host"), accessGiven: flag("host.done"), needsHelp: flag("host.help"), wantsCreated: wants("host.create") },
+    cms: {
+      has: choice("cms.has"),
+      giving: choice("cms.give"),
+      platform: text("cms.platform"),
+      developer: text("cms.dev"),
+      ...login("cms"),
+      accessGiven: flag("cms.done"),
+      needsHelp: flag("cms.help"),
+    },
     email: {
       has: choice("mail.has"),
       provider: text("mail.prov"),
@@ -562,6 +578,15 @@ export const toBackend = (answers: Answers, competitors: Competitor[], pages: st
     media: Object.fromEntries(entriesOf(MEDIA_FIELDS).map(([id, field]) => [field, media(id)])),
   };
 };
+
+// The domain in a web address: "https://www.example.com/contact" is example.com.
+export const hostOf = (url?: string) =>
+  (url ?? "")
+    .trim()
+    .replace(/^[a-z]+:\/\//i, "")
+    .replace(/^www\./i, "")
+    .split(/[/?#]/)[0]
+    .toLowerCase();
 
 // The other way: a stored onboarding as the form holds it, to carry on from.
 // `files` are the photos and videos uploaded so far, by the id of their item on the form.
@@ -609,11 +634,24 @@ export const fromBackend = (stored: Onboarding): { answers: Answers; competitors
   put("dom.help", domain?.needsHelp);
   put("dom.create", yesNo(domain?.wantsCreated));
   put("dom.wish", domain?.wishlist);
+  for (const [id, platform] of [["dom", domain], ["host", hosting], ["cms", cms]] as const) {
+    put(`${id}.access`, platform?.access);
+    put(`${id}.username`, platform?.loginUsername);
+    put(`${id}.passwordSet`, platform?.loginPasswordSet);
+  }
+  // A website they gave is on a domain they have: the domain's answers start from it, so it
+  // isn't asked again (OnboardingProcess → DomainItem).
+  const siteHost = website?.hasNone ? "" : hostOf(website?.url);
+  if (siteHost && !domain?.has) put("dom.has", "yes");
+  if (siteHost && !domain?.name && (domain?.has ?? "yes") === "yes") put("dom.name", siteHost);
   put("host.has", hosting?.has);
   put("host.platform", hosting?.platform);
   put("host.done", hosting?.accessGiven);
   put("host.help", hosting?.needsHelp);
   put("host.create", yesNo(hosting?.wantsCreated));
+  // Saved before it was asked: a platform named means there is one.
+  put("cms.has", cms?.has ?? (cms?.platform ? "yes" : undefined));
+  put("cms.give", cms?.giving);
   put("cms.platform", cms?.platform);
   put("cms.dev", cms?.developer);
   put("cms.done", cms?.accessGiven);
@@ -686,6 +724,14 @@ const wanted = (answers: Answers, id: string, creating: string): Standing =>
 const inviting = (answers: Answers, id: string): Standing =>
   answers[`${id}.done`] === true ? ["Access given", "done"] : answers[`${id}.help`] === true ? ["Needs help", "followup"] : ["Waiting on access", "pending"];
 
+// Access to a platform: by invite (given, stuck, or still to do), or by the login they share.
+const platformAccess = (answers: Answers, id: string): Standing => {
+  if (answers[`${id}.access`] !== "secure") return inviting(answers, id);
+  const username = typeof answers[`${id}.username`] === "string" && (answers[`${id}.username`] as string).trim();
+  const password = answers[`${id}.passwordSet`] === true || (typeof answers[`${id}.password`] === "string" && answers[`${id}.password`] !== "");
+  return username && password ? ["Login shared", "done"] : ["Waiting for the login", "pending"];
+};
+
 const platformStanding = (answers: Answers, id: string, group: PlatformGroup, creating: string): Standing => {
   const has = answers[`${id}.has`];
   if (has === "yes") {
@@ -695,20 +741,34 @@ const platformStanding = (answers: Answers, id: string, group: PlatformGroup, cr
     if (access === "unsure") return ["We'll help find it", "followup"];
     if (access === "builder") return ["Included with site", "done"];
     if (access === "dev") return ["We'll contact your developer", "followup"];
-    return inviting(answers, id);
+    return platformAccess(answers, id);
   }
   if (has === "no") return wanted(answers, id, creating);
   if (has === "unsure") return ["We'll check", "followup"];
   return TODO;
 };
 
+// Hosting on a site builder: the builder is the CMS too, and its dashboard is the way in.
+export const onBuilder = (answers: Answers) => {
+  const platform = answers["host.platform"];
+  return answers["host.has"] === "yes" && typeof platform === "string" && Boolean(platform) && accessOf("host", platform) === "builder";
+};
+
+// The website's login: whether there is a CMS, what access they give, and then that access.
 const cmsStanding = (answers: Answers): Standing => {
+  const builder = onBuilder(answers);
+  const has = builder ? "yes" : answers["cms.has"];
+  if (has === "no") return ["No CMS — hosting is enough", "done"];
+  if (has === "unsure") return ["We'll check", "followup"];
+  if (has !== "yes") return TODO;
+  // Into the hosting only: the website is reached through it.
+  if (!builder && answers["host.has"] === "yes" && answers["cms.give"] === "hosting") return ["Through the hosting", "done"];
   const platform = answers["cms.platform"];
-  if (typeof platform !== "string" || !platform) return TODO;
+  if (typeof platform !== "string" || !platform) return ["Pick a platform", "pending"];
   const access = accessOf("cms", platform);
   if (access === "unsure") return ["We'll help find it", "followup"];
   if (access === "dev") return ["We'll contact your developer", "followup"];
-  return inviting(answers, "cms");
+  return platformAccess(answers, "cms");
 };
 
 const accountStanding = (answers: Answers, id: string): Standing => {
@@ -755,7 +815,15 @@ export const statusesOf = (answers: Answers): Status[] => {
     need === "new" ? ["New website", "create"] : need === "redesign" ? ["Redesign", "create"] : need === "no" ? ["Keeping current site", "done"] : TODO,
   );
   add("Website and domain", "domain", "Domain name", platformStanding(answers, "dom", "registrar", "We'll register it"));
-  add("Website and domain", "hosting", "Hosting", platformStanding(answers, "host", "host", "We'll set it up"));
+  add(
+    "Website and domain",
+    "hosting",
+    "Hosting",
+    // With a CMS, they can let us into its dashboard alone: the hosting is then not needed.
+    answers["host.has"] === "yes" && !onBuilder(answers) && answers["cms.has"] === "yes" && answers["cms.give"] === "cms" && answers["web.none"] !== true
+      ? ["Dashboard access instead", "done"]
+      : platformStanding(answers, "host", "host", "We'll set it up"),
+  );
   if (answers["web.none"] !== true) add("Website and domain", "cms", "Website login", cmsStanding(answers));
 
   const mail = answers["mail.has"];

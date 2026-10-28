@@ -4,11 +4,14 @@ import { Fragment, useEffect, useRef, useState, type DragEvent, type ReactNode }
 import Image from "next/image";
 import Link from "next/link";
 import { AnimatePresence, MotionConfig, motion } from "framer-motion";
-import { AtSign, Building2, Camera, Check, ChevronDown, CircleAlert, Copy, ExternalLink, FileText, Globe, Info, KeyRound, LifeBuoy, Link2, ListChecks, Loader2, Lock, Mail, MapPin, Palette, Pencil, Phone, Plus, Server, Target, Upload, User, Users, X, type LucideIcon } from "lucide-react";
-import { deleteOnboardingAction, startOnboardingAction, updateMyOnboardingAction, updateOnboardingAction, type Onboarding, type OnboardingFile } from "@/app/actions/onboarding";
+import { Building2, Camera, Check, ChevronDown, CircleAlert, Copy, ExternalLink, Globe, Info, LifeBuoy, Loader2, Lock, Mail, MapPin, Palette, Plus, Server, Target, Upload, User, Users, X, type LucideIcon } from "lucide-react";
+import { deleteOnboardingAction, startOnboardingAction, updateMyOnboardingAction, updateOnboardingAction, type Onboarding, type OnboardingComment, type OnboardingFile } from "@/app/actions/onboarding";
 import { formatFileSize } from "@/component/projects/projectUi";
 import { poppins } from "@/component/shared/fonts";
+import StepComments from "./StepComments";
 import {
+  onBuilder,
+  hostOf,
   AGENCY_EMAIL,
   DEFAULT_FEATURES,
   DEFAULT_PAGES,
@@ -36,7 +39,6 @@ import {
   isAccordion,
   isAnswered,
   itemsOf,
-  listOf,
   platformsOf,
   statusesOf,
   toBackend,
@@ -78,15 +80,13 @@ const PILL: Record<Tone, string> = {
   followup: "bg-[#f1ebfe] text-[#6d28d9]",
 };
 
-// Where a step stands, in the colors of the team's own map of the onboarding (company-portal:
-// OnboardingControls): each with how its number is drawn, and what that means to the client.
-type StepStanding = "approved" | "filled" | "help" | "wait";
-const STEP_STANDINGS: StepStanding[] = ["approved", "filled", "help", "wait"];
+// Where a step stands: each with how its number is drawn, and what that means to the client.
+type StepStanding = "approved" | "submitted" | "todo";
+const STEP_STANDINGS: StepStanding[] = ["approved", "submitted", "todo"];
 const STEP_DOTS: Record<StepStanding, [dot: string, meaning: string]> = {
   approved: ["border-[#16A34A] bg-[#16A34A] text-white", "Approved"],
-  filled: ["border-[#16A34A] bg-white text-[#15803D]", "Answered, in review"],
-  help: ["border-[#7C3AED] bg-[#7C3AED] text-white", "We\u2019re helping"],
-  wait: ["border-[#D97706] bg-[#D97706] text-white", "Waiting on you"],
+  submitted: ["border-[#2F5FD8] bg-[#2F5FD8] text-white", "Submitted"],
+  todo: ["border-[#D97706] bg-[#FEF3C7] text-[#B45309]", "Todo"],
 };
 
 const NOTE = {
@@ -161,11 +161,22 @@ const Collapse = ({ open, children }: { open: boolean; children: ReactNode }) =>
 );
 
 // What follows from an answer: the next question, set in from the left.
-const Reveal = ({ open, children }: { open: boolean; children: ReactNode }) => (
+// Before the question is answered, the questions under every answer are on view, so nothing is
+// hidden — each set with `when` saying which answer it is for ("If you have one"). Once it is
+// answered, only the set for that answer stays (see `fits`), and it needs no caption.
+const Reveal = ({ open, when, children }: { open: boolean; when?: string; children: ReactNode }) => (
   <Collapse open={open}>
-    <div className="mt-3 border-l-[3px] border-[#e8effd] py-0.5 pb-1 pl-4">{children}</div>
+    <div className="mt-3 border-l-[3px] border-[#e8effd] py-0.5 pb-1 pl-4">
+      {when ? <div className="pt-1 text-[11px] font-semibold tracking-[0.04em] text-[#2f5fd8] uppercase">{when}</div> : null}
+      {children}
+    </div>
   </Collapse>
 );
+
+// Whether the questions for `value` belong on view: before anything is picked, or once it is.
+const fits = (answer: string | boolean | undefined, value: string) => !answer || answer === value;
+// The caption naming the answer a set is for: only while nothing is picked.
+const captionFor = (answer: string | boolean | undefined, caption: string) => (answer ? undefined : caption);
 
 type Choice = { value: string; label: string };
 const YES_NO_UNSURE: Choice[] = [
@@ -371,6 +382,8 @@ const PlatformAccess = ({
   label,
   first = false,
   beside,
+  alsoSet,
+  wayIn = true,
 }: {
   form: Form;
   id: string;
@@ -378,6 +391,10 @@ const PlatformAccess = ({
   label: string;
   first?: boolean;
   beside?: ReactNode;
+  // More answers that follow from the platform picked (hosting on a site builder → its CMS too).
+  alsoSet?: (platform: string) => Answers;
+  // False: only the picker and its notes — the way in is shown by the caller (HostingItem).
+  wayIn?: boolean;
 }) => {
   const platform = text(form.answers, `${id}.platform`);
   const access = platform ? accessOf(group, platform) : null;
@@ -392,7 +409,9 @@ const PlatformAccess = ({
         className={`${inputClass} cursor-pointer`}
         value={platform}
         // Another platform is another account to be let into: access given to the last one no longer counts.
-        onChange={(event) => form.patch({ [`${id}.platform`]: event.target.value, [`${id}.done`]: false, [`${id}.help`]: false })}
+        onChange={(event) =>
+          form.patch({ [`${id}.platform`]: event.target.value, [`${id}.done`]: false, [`${id}.help`]: false, ...(alsoSet?.(event.target.value) ?? {}) })
+        }
       >
         <option value="">Select one</option>
         {platformsOf(group).map((choice) => (
@@ -424,7 +443,52 @@ const PlatformAccess = ({
           <Note tone="violet">We&apos;ll contact your developer to arrange access, with your permission.</Note>
         </>
       ) : null}
-      {Array.isArray(access) ? <EmailAccess key={platform} form={form} id={id} platform={platform} /> : null}
+      {wayIn && Array.isArray(access) ? <PlatformWayIn key={platform} form={form} id={id} platform={platform} /> : null}
+    </>
+  );
+};
+
+// How they let us into a platform: inviting our access email (its own steps), or sharing the
+// login — an email or username and a password, which is encrypted before it is stored.
+const PlatformWayIn = ({ form, id, platform }: { form: Form; id: string; platform: string }) => {
+  const how = form.answers[`${id}.access`] === "secure" ? "secure" : "invite";
+  const passwordSaved = form.answers[`${id}.passwordSet`] === true;
+  return (
+    <>
+      <p className={questionClass}>How would you like to give us access?</p>
+      <Options
+        label={`How would you like to give us access to ${platform}?`}
+        value={how}
+        onChange={(value) => form.patch({ [`${id}.access`]: value, [`${id}.done`]: false, [`${id}.help`]: false })}
+        choices={[
+          { value: "invite", label: "Invite our email" },
+          { value: "secure", label: "Share the login" },
+        ]}
+      />
+      {how === "invite" ? (
+        <EmailAccess form={form} id={id} platform={platform} />
+      ) : (
+        <>
+          <div className="mt-3 grid gap-x-3.5 sm:grid-cols-2">
+            <Field form={form} id={`${id}-username`} name={`${id}.username`} label={`${platform} email or username`} placeholder="you@yourbusiness.com" autoComplete="off" first />
+            <Field
+              form={form}
+              id={`${id}-password`}
+              name={`${id}.password`}
+              type="password"
+              label={`${platform} password`}
+              hint={passwordSaved ? "(saved — type a new one to replace it)" : undefined}
+              placeholder={passwordSaved ? "••••••••" : undefined}
+              autoComplete="off"
+              maxLength={200}
+              first
+            />
+          </div>
+          <Note tone="blue" icon={Lock}>
+            We use it only to sign in to your {platform}. Your password is encrypted before it is stored, and it isn&apos;t shown on this page again.
+          </Note>
+        </>
+      )}
     </>
   );
 };
@@ -495,7 +559,7 @@ const WebsiteItem = ({
         ]}
       />
 
-      <Reveal open={need === "new" || need === "redesign"}>
+      <Reveal open={need !== "no"} when={captionFor(need, "If we build or redesign it")}>
         <Note tone="blue" icon={Info}>
           The more detail you give us, the closer the first design will be to what you have in mind.
         </Note>
@@ -755,13 +819,39 @@ const YES_NO_NOW: Choice[] = [
 
 const DomainItem = ({ form }: { form: Form }) => {
   const has = form.answers["dom.has"];
+  const name = text(form.answers, "dom.name");
+  // Their domain, known before this visit (from signing up, their website, or an earlier save):
+  // it isn't asked again — it is shown, with a way to change it, and only where it is registered
+  // is asked.
+  const [known] = useState(() => has === "yes" && Boolean(name.trim()));
+  const [changing, setChanging] = useState(false);
+
+  if (known && !changing && has === "yes") {
+    return (
+      <>
+        <div className="flex items-center gap-3 rounded-xl border border-[#cfe9d8] bg-[#f1faf4] px-3.5 py-3">
+          <span className="grid size-8 shrink-0 place-items-center rounded-lg bg-[#16a34a] text-white">
+            <Check size={16} strokeWidth={2.5} />
+          </span>
+          <div className="min-w-0 flex-1">
+            <div className="text-[11.5px] font-semibold text-[#15803d]">Your domain</div>
+            <div className="truncate text-[14px] font-semibold text-[#0b1522]">{hostOf(name) || name}</div>
+          </div>
+          <button type="button" onClick={() => setChanging(true)} className="shrink-0 cursor-pointer text-[12.5px] font-semibold text-[#2f5fd8] hover:underline">
+            Change
+          </button>
+        </div>
+        <PlatformAccess form={form} id="dom" group="registrar" label="Where is your domain registered?" />
+      </>
+    );
+  }
   return (
     <>
       <p className={firstQuestionClass}>
         Do you have a domain? <span className={`${hintClass} font-normal`}>(the address people type, like yourbusiness.com)</span>
       </p>
       <Options label="Do you have a domain?" value={has} choices={YES_NO_UNSURE} onChange={(value) => form.set("dom.has", value)} />
-      <Reveal open={has === "yes"}>
+      <Reveal open={fits(has, "yes")} when={captionFor(has, "If you have one")}>
         <PlatformAccess
           form={form}
           id="dom"
@@ -771,10 +861,10 @@ const DomainItem = ({ form }: { form: Form }) => {
           beside={<Field form={form} id="dom-name" name="dom.name" label="Your domain" placeholder="yourbusiness.com" first />}
         />
       </Reveal>
-      <Reveal open={has === "no"}>
+      <Reveal open={fits(has, "no")} when={captionFor(has, "If you don't")}>
         <p className={firstQuestionClass}>Do you want us to register a domain for you?</p>
         <Options label="Do you want us to register a domain for you?" value={form.answers["dom.create"]} choices={YES_NO_NOW} onChange={(value) => form.set("dom.create", value)} />
-        <Collapse open={form.answers["dom.create"] === "yes"}>
+        <Collapse open={form.answers["dom.create"] !== "no"}>
           <Field form={form} id="dom-wish" name="dom.wish" label="Domain names you'd like (in order of preference)" placeholder="yourbusiness.com, yourbusinessfl.com" />
         </Collapse>
       </Reveal>
@@ -785,24 +875,105 @@ const DomainItem = ({ form }: { form: Form }) => {
   );
 };
 
+// Hosting, and the website's CMS with it. Is there a CMS (WordPress, Shopify…)? With one, they
+// can let us into its dashboard, the hosting, or both; without one, the hosting is the way in.
+// Either way in is an invite to our email or the login itself (PlatformWayIn). Hosting on a site
+// builder (Wix, Squarespace, Shopify) is its own CMS: its dashboard covers both.
 const HostingItem = ({ form }: { form: Form }) => {
   const has = form.answers["host.has"];
+  const hostPlatform = text(form.answers, "host.platform");
+  const builder = onBuilder(form.answers);
+  // Without a website there is nothing to sign in to.
+  const hasSite = form.answers["web.none"] !== true;
+  const cms = builder ? "yes" : form.answers["cms.has"];
+  const cmsPlatform = text(form.answers, "cms.platform");
+  // Only with a hosting account of their own is there a choice of which to give.
+  const canGiveHosting = has === "yes" && !builder;
+  const giving = builder ? "cms" : canGiveHosting ? form.answers["cms.give"] : "cms";
+  const hostingWay = canGiveHosting && Boolean(hostPlatform) && Array.isArray(accessOf("host", hostPlatform)) && (!hasSite || cms !== "yes" || giving === "hosting" || giving === "both");
+  const cmsWay = hasSite && cms === "yes" && Boolean(cmsPlatform) && Array.isArray(accessOf("cms", cmsPlatform)) && (giving === "cms" || giving === "both");
+
   return (
     <>
       <p className={firstQuestionClass}>
         Do you have a hosting account? <span className={`${hintClass} font-normal`}>(the company that keeps your website online)</span>
       </p>
       <Options label="Do you have a hosting account?" value={has} choices={YES_NO_UNSURE} onChange={(value) => form.set("host.has", value)} />
-      <Reveal open={has === "yes"}>
-        <PlatformAccess form={form} id="host" group="host" label="Where is your website hosted?" first />
+      <Reveal open={fits(has, "yes")} when={captionFor(has, "If you have one")}>
+        <PlatformAccess
+          form={form}
+          id="host"
+          group="host"
+          label="Where is your website hosted?"
+          first
+          wayIn={false}
+          // A site builder hosts the site and is where it is edited: the CMS is the same one.
+          alsoSet={(platform) =>
+            accessOf("host", platform) === "builder" && accessOf("cms", platform) !== "unsure"
+              ? { "cms.has": "yes", "cms.give": "cms", "cms.platform": platform, "cms.done": false, "cms.help": false }
+              : {}
+          }
+        />
       </Reveal>
-      <Reveal open={has === "no"}>
+      <Reveal open={fits(has, "no")} when={captionFor(has, "If you don't")}>
         <p className={firstQuestionClass}>Do you want us to set up hosting for you?</p>
         <Options label="Do you want us to set up hosting for you?" value={form.answers["host.create"]} choices={YES_NO_NOW} onChange={(value) => form.set("host.create", value)} />
       </Reveal>
       <Reveal open={has === "unsure"}>
         <Note tone="violet">No problem. Your account manager will find out where your site is hosted.</Note>
       </Reveal>
+
+      {hasSite ? (
+        <div className="mt-5 border-t border-[#e6e8eb] pt-4">
+          {builder ? (
+            <Note tone="blue" icon={Info}>
+              {hostPlatform} hosts your website and is also where you edit it, so access to its dashboard covers both.
+            </Note>
+          ) : (
+            <>
+              <p className={firstQuestionClass}>
+                Is your website built on a CMS? <span className={`${hintClass} font-normal`}>(like WordPress, Shopify or Webflow — where you sign in to edit your pages)</span>
+              </p>
+              <Options label="Is your website built on a CMS?" value={cms} choices={YES_NO_UNSURE} onChange={(value) => form.set("cms.has", value)} />
+              <Collapse open={cms === "unsure"}>
+                <Note tone="violet">No problem. We&apos;ll find out when we look at your website.</Note>
+              </Collapse>
+            </>
+          )}
+          <Collapse open={cms === "yes"}>
+            <PlatformAccess form={form} id="cms" group="cms" label="Which one?" wayIn={false} first={builder} />
+            {canGiveHosting ? (
+              <>
+                <p className={questionClass}>What access can you give us?</p>
+                <Options
+                  label="What access can you give us?"
+                  value={giving}
+                  onChange={(value) => form.set("cms.give", value)}
+                  choices={[
+                    { value: "cms", label: "Website dashboard" },
+                    { value: "hosting", label: "Hosting account" },
+                    { value: "both", label: "Both" },
+                  ]}
+                />
+              </>
+            ) : null}
+          </Collapse>
+        </div>
+      ) : null}
+
+      {/* The way in to each one they give us. */}
+      <Collapse open={hostingWay}>
+        <div className="mt-5 border-t border-[#e6e8eb] pt-4">
+          <p className="text-[13.5px] font-semibold text-[#0b0c24]">Hosting access{hostPlatform ? ` · ${hostPlatform}` : ""}</p>
+          {hostingWay ? <PlatformWayIn key={hostPlatform} form={form} id="host" platform={hostPlatform} /> : null}
+        </div>
+      </Collapse>
+      <Collapse open={cmsWay}>
+        <div className="mt-5 border-t border-[#e6e8eb] pt-4">
+          <p className="text-[13.5px] font-semibold text-[#0b0c24]">Website dashboard access{cmsPlatform ? ` · ${cmsPlatform}` : ""}</p>
+          {cmsWay ? <PlatformWayIn key={cmsPlatform} form={form} id="cms" platform={cmsPlatform} /> : null}
+        </div>
+      </Collapse>
     </>
   );
 };
@@ -823,10 +994,10 @@ const EmailItem = ({ form }: { form: Form }) => {
           { value: "no", label: "No" },
         ]}
       />
-      <Reveal open={has === "yes"}>
+      <Reveal open={fits(has, "yes")} when={captionFor(has, "If you have one")}>
         <Select form={form} id="mail-prov" name="mail.prov" label="Who provides it?" choices={EMAIL_PROVIDERS} first />
       </Reveal>
-      <Reveal open={has === "no"}>
+      <Reveal open={fits(has, "no")} when={captionFor(has, "If you don't")}>
         <p className={firstQuestionClass}>Do you need us to create a business Gmail with Google Workspace?</p>
         <Options
           label="Do you need us to create a business Gmail?"
@@ -837,7 +1008,7 @@ const EmailItem = ({ form }: { form: Form }) => {
             { value: "no", label: "No, thanks" },
           ]}
         />
-        <Collapse open={form.answers["mail.create"] === "yes"}>
+        <Collapse open={form.answers["mail.create"] !== "no"}>
           <div className="grid gap-x-3.5 sm:grid-cols-2">
             <Field form={form} id="mail-n" name="mail.n" type="number" label="How many email accounts?" />
             <Field form={form} id="mail-addr" name="mail.addr" label="Addresses you want" placeholder="info@, david@, intake@" />
@@ -864,7 +1035,7 @@ const LogoItem = ({ form }: { form: Form }) => {
         ]}
       />
       {/* Upload it here, share a link to it, or both — as with the photos and videos. */}
-      <Reveal open={has === "yes"}>
+      <Reveal open={fits(has, "yes")} when={captionFor(has, "If you have one")}>
         {form.canUpload ? (
           <>
             <p className={firstQuestionClass}>Upload your logo</p>
@@ -886,10 +1057,10 @@ const LogoItem = ({ form }: { form: Form }) => {
           have.
         </div>
       </Reveal>
-      <Reveal open={has === "no"}>
+      <Reveal open={fits(has, "no")} when={captionFor(has, "If you don't")}>
         <p className={firstQuestionClass}>Do you need us to design a logo?</p>
         <Options label="Do you need us to design a logo?" value={form.answers["logo.create"]} choices={YES_NO_NOW} onChange={(value) => form.set("logo.create", value)} />
-        <Collapse open={form.answers["logo.create"] === "yes"}>
+        <Collapse open={form.answers["logo.create"] !== "no"}>
           <label htmlFor="logo-style" className={labelClass}>
             Style preferences
           </label>
@@ -1086,9 +1257,7 @@ const LinkedAccess = ({ form, account, via }: { form: Form; account: Account; vi
           </Note>
         )}
       </Collapse>
-      <Collapse open={access === "secure"}>
-        <LoginFields form={form} account={account} />
-      </Collapse>
+      <LoginFields form={form} account={account} />
     </>
   );
 };
@@ -1113,11 +1282,11 @@ const AccountItem = ({ form, account, google }: { form: Form; account: Account; 
         onChange={(value) => form.patch({ [`${id}.has`]: value, ...((profile || steps) && value === "yes" ? { [`${id}.access`]: "invite" } : {}) })}
       />
       {/* Every account they have starts with where it is; how we get in differs from one to the next. */}
-      <Reveal open={has === "yes" && special}>
+      <Reveal open={special && fits(has, "yes")} when={captionFor(has, "If you have it")}>
         {account.placeholder ? <Field form={form} id={`${id}-link`} name={`${id}.link`} label="Link or name" hint="(optional)" placeholder={account.placeholder} first /> : null}
         {profile ? <ProfileAccess form={form} account={{ ...account, profile }} /> : via ? <LinkedAccess form={form} account={account} via={via} /> : <LoginFields form={form} account={account} />}
       </Reveal>
-      <Reveal open={has === "yes" && !special}>
+      <Reveal open={!special && fits(has, "yes")} when={captionFor(has, "If you have it")}>
         {account.placeholder ? <Field form={form} id={`${id}-link`} name={`${id}.link`} label="Link or name" hint="(optional)" placeholder={account.placeholder} first /> : null}
         {steps ? (
           // An account we are invited to by email: the email, and whether that has been done.
@@ -1140,7 +1309,7 @@ const AccountItem = ({ form, account, google }: { form: Form; account: Account; 
           </>
         )}
       </Reveal>
-      <Reveal open={has === "no" && !account.yesOrNo}>
+      <Reveal open={!account.yesOrNo && fits(has, "no")} when={captionFor(has, "If you don't")}>
         <p className={firstQuestionClass}>Do you want us to create it for you?</p>
         <Options
           label="Do you want us to create it for you?"
@@ -1347,6 +1516,10 @@ const MediaUpload = ({ form, media }: { form: Form; media: Pick<Media, "id"> }) 
 const MediaItem = ({ form, media }: { form: Form; media: Media }) => {
   const { id } = media;
   const mode = form.answers[`${id}.mode`];
+  // What follows the choice: the upload for "Share what I have", the notes for "I need these
+  // created", nothing for "I don't need these". Before a choice, only what was already shared.
+  const shared = Boolean((form.files[id] ?? []).length || text(form.answers, `${id}.link`));
+  const sharing = mode === "upload" || (!mode && shared);
   return (
     <>
       <p className={`${hintClass} -mt-1`}>{media.about}</p>
@@ -1361,7 +1534,7 @@ const MediaItem = ({ form, media }: { form: Form; media: Media }) => {
           { value: "none", label: "I don't need these" },
         ]}
       />
-      <Reveal open={mode === "upload"}>
+      <Reveal open={sharing}>
         {form.canUpload ? (
           <>
             <p className={firstQuestionClass}>Upload your {media.name.toLowerCase()}</p>
@@ -1385,6 +1558,11 @@ const MediaItem = ({ form, media }: { form: Form; media: Media }) => {
       <Reveal open={mode === "create"}>
         <Note tone="violet">Your account manager will get back to you to plan the {media.shoot}: what to capture, where and when.</Note>
         <Field form={form} id={`${id}-notes`} name={`${id}.notes`} label="Anything we should know?" hint="(optional)" placeholder={media.notesPlaceholder} />
+      </Reveal>
+      <Reveal open={mode === "none"}>
+        <Note tone="blue" icon={Info}>
+          No problem. We won&apos;t ask for {media.name.toLowerCase()}. You can change this any time.
+        </Note>
       </Reveal>
     </>
   );
@@ -1475,7 +1653,7 @@ const ITEM_TITLES: Record<string, string> = {
   contact: "Your details",
   website: "Website",
   domain: "Domain name",
-  hosting: "Hosting",
+  hosting: "Hosting and website login",
   cms: "Website login (CMS access)",
   email: "Business email",
   logo: "Logo",
@@ -1490,175 +1668,28 @@ const BLANK_COMPETITORS: Competitor[] = [
 
 // ── The form itself ──────────────────────────────────────────────────────────
 
-// ── Reading the answers back ─────────────────────────────────────────────────
-
-// One answer as it is read back: an icon, what was asked, and what was answered. A `wide`
-// one (a description, a list) takes the whole row.
-type Row = { icon: LucideIcon; label: string; value: string; wide?: boolean };
-
-const HAS_WORDS: Record<string, string> = { yes: "Yes", no: "No", unsure: "Not sure" };
-const NEED_WORDS: Record<string, string> = { new: "Yes, build a new one", redesign: "Redesign my current site", no: "No, not right now" };
-const MEDIA_WORDS: Record<string, string> = { upload: "Sharing what I have", create: "I need these created", none: "I don't need these" };
-
-// Everything an item asked that applies to how it was answered, in the form's own order:
-// what the client sees of a submitted onboarding, in place of the item's questions.
-const readBack = (item: string, answers: Answers, lists: { competitors: Competitor[]; pages: string[]; features: string[]; files: Record<string, OnboardingFile[]> }): Row[] => {
-  const of = (key: string) => text(answers, key).trim();
-  const word = (key: string, words = HAS_WORDS) => words[of(key)] ?? "";
-  // Where giving us access stands.
-  const access = (id: string) => (answers[`${id}.done`] === true ? "Access given" : answers[`${id}.help`] === true ? "Needs help" : "Not given yet");
-  // A number today and as they want it: "20 → 40".
-  const target = (key: string, unit: string) =>
-    of(`${key}.now`) || of(`${key}.goal`) ? `${of(`${key}.now`) ? unit + of(`${key}.now`) : "—"} → ${of(`${key}.goal`) ? unit + of(`${key}.goal`) : "—"}` : "";
-
-  switch (item) {
-    case "contact":
-      return [
-        { icon: User, label: "Your name", value: of("contact.name") },
-        { icon: Building2, label: "Company name", value: of("contact.company") },
-        { icon: Mail, label: "Email", value: of("contact.email") },
-        { icon: Phone, label: "Phone", value: of("contact.phone") },
-        { icon: Building2, label: "Business description", value: of("biz.desc"), wide: true },
-        { icon: MapPin, label: "Location", value: listOf(of("biz.areas")).join(", "), wide: true },
-        ...GOAL_TARGETS.map((goal) => ({ icon: Target, label: goal.title, value: target(goal.id, goal.money ? "$" : "") })),
-        { icon: Info, label: "How soon", value: GOAL_TIMEFRAMES.find((choice) => choice.value === of("goal.time"))?.label ?? "" },
-        { icon: Info, label: "Monthly marketing budget", value: GOAL_BUDGETS.find((choice) => choice.value === of("goal.budget"))?.label ?? "" },
-      ];
-    case "website": {
-      const building = of("web.need") === "new" || of("web.need") === "redesign";
-      const liked = lists.competitors.filter((row) => row.url.trim() || row.note.trim()).map((row) => [row.url.trim(), row.note.trim()].filter(Boolean).join(" — "));
-      return [
-        { icon: Globe, label: "Current website", value: answers["web.none"] === true ? "No website yet" : of("web.url") },
-        { icon: Info, label: "Do you need a new website?", value: word("web.need", NEED_WORDS) },
-        ...(building
-          ? [
-              { icon: FileText, label: "How you want your website", value: of("web.desc"), wide: true },
-              { icon: Link2, label: "Websites you like", value: liked.join("\n"), wide: true },
-              { icon: ListChecks, label: "Pages you'll need", value: lists.pages.join(", "), wide: true },
-              { icon: ListChecks, label: "Features you'll need", value: lists.features.join(", "), wide: true },
-            ]
-          : []),
-      ];
-    }
-    case "domain":
-      return [
-        { icon: Globe, label: "Do you have a domain?", value: word("dom.has") },
-        ...(of("dom.has") === "yes"
-          ? [
-              { icon: AtSign, label: "Your domain", value: of("dom.name") },
-              { icon: Server, label: "Registered with", value: of("dom.platform") },
-              { icon: Lock, label: "Access", value: access("dom") },
-            ]
-          : []),
-        ...(of("dom.has") === "no" ? [{ icon: Plus, label: "Register a domain for you?", value: word("dom.create") }] : []),
-        ...(of("dom.has") === "no" && of("dom.create") === "yes" ? [{ icon: FileText, label: "Domain names you'd like", value: of("dom.wish") }] : []),
-      ];
-    case "hosting":
-      return [
-        { icon: Server, label: "Do you have a hosting account?", value: word("host.has") },
-        ...(of("host.has") === "yes"
-          ? [
-              { icon: Globe, label: "Hosted with", value: of("host.platform") },
-              { icon: Lock, label: "Access", value: access("host") },
-            ]
-          : []),
-        ...(of("host.has") === "no" ? [{ icon: Plus, label: "Set up hosting for you?", value: word("host.create") }] : []),
-      ];
-    case "cms":
-      return [
-        { icon: Globe, label: "Website built with", value: of("cms.platform") },
-        ...(of("cms.dev") ? [{ icon: User, label: "Developer", value: of("cms.dev") }] : []),
-        { icon: Lock, label: "Access", value: access("cms") },
-      ];
-    case "email":
-      return [
-        { icon: Mail, label: "Business email on your domain?", value: word("mail.has") },
-        ...(of("mail.has") === "yes" ? [{ icon: Server, label: "Provided by", value: of("mail.prov") }] : []),
-        ...(of("mail.has") === "no" ? [{ icon: Plus, label: "Create a business Gmail for you?", value: word("mail.create") }] : []),
-        ...(of("mail.has") === "no" && of("mail.create") === "yes"
-          ? [
-              { icon: Users, label: "Email accounts", value: of("mail.n") },
-              { icon: AtSign, label: "Addresses you want", value: of("mail.addr") },
-            ]
-          : []),
-      ];
-    case "logo":
-      return [
-        { icon: Palette, label: "Do you have a logo?", value: word("logo.has") },
-        ...(of("logo.has") === "yes"
-          ? [
-              { icon: Upload, label: "Uploaded", value: lists.files.logo?.length ? `${lists.files.logo.length} file${lists.files.logo.length > 1 ? "s" : ""}` : "" },
-              { icon: Link2, label: "Link to your logo files", value: of("logo.link") },
-            ]
-          : []),
-        ...(of("logo.has") === "no" ? [{ icon: Plus, label: "Design a logo for you?", value: word("logo.create") }] : []),
-        ...(of("logo.has") === "no" && of("logo.create") === "yes" ? [{ icon: FileText, label: "Style preferences", value: of("logo.style"), wide: true }] : []),
-        ...(of("logo.has") === "no" && of("logo.create") === "yes" && lists.files.logoStyle?.length
-          ? [{ icon: Upload, label: "Attached files", value: `${lists.files.logoStyle.length} file${lists.files.logoStyle.length > 1 ? "s" : ""}` }]
-          : []),
-      ];
-    default: {
-      if (MEDIA.some((media) => media.id === item)) {
-        const count = lists.files[item]?.length ?? 0;
-        return [
-          { icon: Camera, label: "What you'd like to do", value: word(`${item}.mode`, MEDIA_WORDS) },
-          ...(of(`${item}.mode`) === "upload"
-            ? [
-                { icon: Upload, label: "Uploaded", value: count ? `${count} file${count > 1 ? "s" : ""}` : "" },
-                { icon: Link2, label: "Shared folder link", value: of(`${item}.link`) },
-              ]
-            : []),
-          ...(of(`${item}.notes`) ? [{ icon: FileText, label: "Anything we should know", value: of(`${item}.notes`), wide: true }] : []),
-        ];
-      }
-      // A Google or social account. One we sign in to shows its login; any other, where access stands.
-      const account = [...GOOGLE, ...SOCIAL].find((entry) => entry.id === item);
-      const saved = answers[`${item}.passwordSet`] === true;
-      const login = [of(`${item}.username`), saved ? "password saved" : ""].filter(Boolean).join(" · ");
-      return [
-        { icon: Check, label: account?.question ?? "Do you have this account?", value: word(`${item}.has`) },
-        ...(of(`${item}.has`) === "yes" && account?.placeholder ? [{ icon: Link2, label: "Link or name", value: of(`${item}.link`) }] : []),
-        ...(of(`${item}.has`) === "yes" && account?.via ? [{ icon: Link2, label: "Already connected to your Facebook Page", value: answers[`${item}.connected`] === true ? "Yes" : "No" }] : []),
-        ...(of(`${item}.has`) === "yes"
-          ? [login ? { icon: KeyRound, label: "Login", value: login } : { icon: Lock, label: "Access", value: of(`${item}.access`) === "secure" ? "Sharing the login securely" : access(item) }]
-          : []),
-        ...(of(`${item}.has`) === "no" && !account?.yesOrNo ? [{ icon: Plus, label: "Create it for you?", value: word(`${item}.create`) }] : []),
-      ];
-    }
-  }
-};
-
-// One answer: its icon, then the question over what was answered.
-const Shown = ({ row }: { row: Row }) => (
-  <div className={`flex items-start gap-3 ${row.wide ? "sm:col-span-2" : ""}`}>
-    <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-[#eef3fd] text-[#2f5fd8]">
-      <row.icon size={16} strokeWidth={2} />
-    </span>
-    <div className="min-w-0">
-      <div className="text-[11.5px] font-medium text-[#6b7280]">{row.label}</div>
-      <div className={`text-[13.5px] leading-snug font-medium break-words whitespace-pre-wrap ${row.value ? "text-[#0b0c24]" : "text-[#9ca3af]"}`}>{row.value || "Not given"}</div>
-    </div>
-  </div>
-);
-
-// An item's answers, two to a row.
-const ReadBack = ({ rows }: { rows: Row[] }) => (
-  <div className="grid gap-x-6 gap-y-4 sm:grid-cols-2">
-    {rows.map((row) => (
-      <Shown key={row.label} row={row} />
-    ))}
-  </div>
-);
-
 // What is being sent just now, so the right button shows it.
 type Saving = "step" | "later" | "submit" | "delete" | null;
+
+// Once saved, a password typed on the form is with the backend, sealed: the form lets go of it,
+// and remembers only that one is stored.
+const withoutTypedPasswords = (answers: Answers): Answers => {
+  const typed = Object.keys(answers).filter((key) => key.endsWith(".password") && answers[key]);
+  if (!typed.length) return answers;
+  const next = { ...answers };
+  for (const key of typed) {
+    delete next[key];
+    next[`${key.slice(0, -".password".length)}.passwordSet`] = true;
+  }
+  return next;
+};
 
 // `initial` is the onboarding this browser started earlier, if there is one: the form opens
 // with those answers, past the step that asks who is answering.
 //
 // `mine` is for a client who is signed in: `initial` is then their own client record — so the
 // form opens already filled in with what we hold on them — and their answers are saved on it.
-const OnboardingProcess = ({ initial = null, mine = false }: { initial?: Onboarding | null; mine?: boolean }) => {
+const OnboardingProcess = ({ initial = null, mine = false, comments }: { initial?: Onboarding | null; mine?: boolean; comments?: OnboardingComment[] }) => {
   const [seed] = useState(() => (initial ? fromBackend(initial) : null));
   const [answers, setAnswers] = useState<Answers>(seed?.answers ?? BLANK_ANSWERS);
   const [competitors, setCompetitors] = useState<Competitor[]>(seed?.competitors ?? BLANK_COMPETITORS);
@@ -1678,17 +1709,10 @@ const OnboardingProcess = ({ initial = null, mine = false }: { initial?: Onboard
   // Whose onboarding has just been handed in — for the popup that says so. The form itself is
   // emptied at that moment, so the popup keeps the name it thanks.
   const [submitted, setSubmitted] = useState<{ name: string; company: string; again: boolean } | null>(null);
-  // When the onboarding was handed in ("" if that isn't known) — null until it has been. Once
-  // it has, the form opens for reading only: the same steps, each item showing what was
-  // answered (readBack) in place of its questions. "Edit" (`editing`) brings the questions back.
+  // When the onboarding was handed in ("" if that isn't known) — null until it has been. The
+  // form stays open to change all the same: handing it in again is "Resubmit".
   const [submittedAt, setSubmittedAt] = useState<string | null>(initial?.onboarding?.status === "submitted" ? (initial.onboarding.submittedAt ?? "") : null);
-  const [editing, setEditing] = useState(false);
   const handedIn = submittedAt !== null;
-  // A signed-in client who has finished signing up — up to confirming the kickoff call — has
-  // their answers read back too, until they choose to edit them.
-  const [signedUp] = useState(() => mine && initial?.onboarding?.kickoffCall?.booked === true);
-  const reading = handedIn || signedUp;
-  const viewing = reading && !editing;
   // Why the last save didn't go through. It stays in view, above the buttons, until the next try.
   const [failure, setFailure] = useState<{ message: string; details: string[] } | null>(null);
 
@@ -1719,11 +1743,11 @@ const OnboardingProcess = ({ initial = null, mine = false }: { initial?: Onboard
   // items they don't need, which are then not asked — nor counted. Who is answering always is.
   // Until the team has said, it is the steps a client starts without.
   const [notNeeded] = useState(() => new Set(initial?.onboarding?.notNeeded ?? DEFAULT_NOT_NEEDED));
-  const ownItems = (id: StepId) => (id === "contact" ? itemsOf(id, answers) : notNeeded.has(`step:${id}`) ? [] : itemsOf(id, answers).filter((item) => !notNeeded.has(controlIdOf(item))));
+  const ownItems = (id: StepId) => (id === "contact" ? itemsOf(id) : notNeeded.has(`step:${id}`) ? [] : itemsOf(id).filter((item) => !notNeeded.has(controlIdOf(item))));
   const steps = STEPS.filter((entry) => ownItems(entry.id).length > 0);
   const asked = new Set(steps.flatMap((entry) => ownItems(entry.id)));
 
-  // A step can leave the list while it is open (its last item went with the website): the one before it then.
+  // A step can leave the list while it is open (the team took it off): the one before it then.
   const step = steps[Math.min(current, steps.length - 1)];
   const statuses = statusesOf(answers).filter((status) => asked.has(status.id));
   const statusOf = (item: string) => statuses.find((status) => status.id === item);
@@ -1734,25 +1758,46 @@ const OnboardingProcess = ({ initial = null, mine = false }: { initial?: Onboard
 
   // What the account manager has approved (company-portal: OnboardingControls), by item.
   const [approved] = useState(() => new Set(initial?.onboarding?.approved ?? []));
-  // Where a step stands, as the team's own map of the onboarding shows it — and in its colors:
-  // approved once every item on it is; else waiting on the client while one has no answer, with
-  // us while one needs our help, and otherwise answered and ours to check.
+  // Where a step stands: approved once every item on it is; todo while one still has no answer;
+  // otherwise submitted, and ours to check.
   const standingOf = (id: StepId): StepStanding => {
     const own = ownItems(id);
     if (own.length && own.every((item) => approved.has(controlIdOf(item)))) return "approved";
-    const tones = own.map((item) => statusOf(item)?.tone);
-    if (own.some((item, at) => tones[at] === undefined || tones[at] === "pending" || !isAnswered(statusOf(item)!))) return "wait";
-    return tones.some((tone) => tone === "followup" || tone === "create") ? "help" : "filled";
+    const unanswered = own.some((item) => {
+      const status = statusOf(item);
+      return !status || status.tone === "pending" || !isAnswered(status);
+    });
+    return unanswered ? "todo" : "submitted";
   };
   // The whole onboarding is approved once every item the client is asked is.
   const allApproved = asked.size > 0 && [...asked].every((item) => approved.has(controlIdOf(item)));
+
+  // What is sent for the answers on the form: the client's own details — a name or company left
+  // empty isn't sent, so it doesn't clear the one on record — and the answers themselves.
+  const detailsOf = (from: Answers) => {
+    const name = text(from, "contact.name").trim();
+    const company = text(from, "contact.company").trim();
+    return {
+      ...(name ? { contactName: name } : {}),
+      ...(company ? { companyName: company } : {}),
+      phone: cleanPhone(text(from, "contact.phone").trim()),
+      answers: toBackend(from, competitors, pages, features),
+    };
+  };
+  const snapshotOf = (from: Answers) => JSON.stringify(detailsOf(from));
+  // What was last saved (or opened with), to tell whether anything has changed since: moving to
+  // another step saves only then.
+  const [openedWith] = useState(() => snapshotOf(answers));
+  const lastSaved = useRef(openedWith);
+  const changed = () => snapshotOf(answers) !== lastSaved.current;
 
   // Sends what is on the form to the backend. The first time, that starts the onboarding —
   // from then on the email is fixed — and after that it updates it. `submit` hands it in.
   // Says what went wrong and returns false when it couldn't be saved.
   const save = async (why: Exclude<Saving, null>, submit?: boolean) => {
-    // Nothing can be saved before we know whose answers these are.
-    const missing = contactProblem(answers);
+    // Without an account, nothing can be saved before we know whose answers these are. A
+    // signed-in client is known already: nothing on the form has to be answered.
+    const missing = mine ? null : contactProblem(answers);
     if (missing) {
       setCurrent(0);
       setOpenItem(null);
@@ -1763,14 +1808,10 @@ const OnboardingProcess = ({ initial = null, mine = false }: { initial?: Onboard
 
     setFailure(null);
     setSaving(why);
-    const details = {
-      contactName: text(answers, "contact.name").trim(),
-      companyName: text(answers, "contact.company").trim(),
-      phone: cleanPhone(text(answers, "contact.phone").trim()),
-      answers: toBackend(answers, competitors, pages, features),
-      ...(submit === undefined ? {} : { submit }),
-    };
-    const start = () => startOnboardingAction({ ...details, email: text(answers, "contact.email").trim() });
+    const details = { ...detailsOf(answers), ...(submit === undefined ? {} : { submit }) };
+    // Starting one (without an account) has its details checked above (contactProblem).
+    const start = () =>
+      startOnboardingAction({ ...details, contactName: text(answers, "contact.name").trim(), companyName: text(answers, "contact.company").trim(), email: text(answers, "contact.email").trim() });
     let result = mine ? await updateMyOnboardingAction(details) : started ? await updateOnboardingAction(details) : await start();
     // What this browser had saved is gone (it was deleted, or its key was lost): everything is
     // still on the form, so it is simply saved again as a new onboarding.
@@ -1784,18 +1825,8 @@ const OnboardingProcess = ({ initial = null, mine = false }: { initial?: Onboard
       return false;
     }
     setStarted(true);
-    // A password typed just now is with the backend, sealed: the page lets go of it, and
-    // remembers only that one is stored.
-    setAnswers((now) => {
-      const typed = Object.keys(now).filter((key) => key.endsWith(".password") && now[key]);
-      if (!typed.length) return now;
-      const next = { ...now };
-      for (const key of typed) {
-        delete next[key];
-        next[`${key.slice(0, -".password".length)}.passwordSet`] = true;
-      }
-      return next;
-    });
+    setAnswers(withoutTypedPasswords);
+    lastSaved.current = snapshotOf(withoutTypedPasswords(answers));
     return true;
   };
 
@@ -1806,15 +1837,8 @@ const OnboardingProcess = ({ initial = null, mine = false }: { initial?: Onboard
   // later, or for good. (Who is answering is checked by `save`, which has its own words for it.)
   const go = async (target: number, item?: string) => {
     if (target < 0 || target >= steps.length || saving) return false;
-    // Only reading: there is nothing to check and nothing to save.
-    if (viewing) {
-      const own = ownItems(steps[target].id);
-      setCurrent(target);
-      setOpenItem(isAccordion(steps[target].id) ? (item ?? own[0] ?? null) : null);
-      window.scrollTo({ top: 0, behavior: "smooth" });
-      return true;
-    }
-    if (!(await save("step"))) return false;
+    // Saved on the way — only when something changed (or, without an account, until the first save starts it).
+    if ((changed() || (!mine && !started)) && !(await save("step"))) return false;
     const next = steps[target];
     const own = ownItems(next.id);
     setCurrent(target);
@@ -1845,7 +1869,7 @@ const OnboardingProcess = ({ initial = null, mine = false }: { initial?: Onboard
   };
 
   // Hands the onboarding in — or, after a change to one already handed in, hands it in again.
-  // A signed-in client then sees their answers again, for reading. Without an account the form
+  // A signed-in client's answers stay on the form, to change at any time. Without an account the form
   // is emptied: the answers are with the team now, and this browser no longer holds them.
   const submit = async () => {
     // It is handed in as it stands: a question left unanswered doesn't hold it back.
@@ -1853,28 +1877,8 @@ const OnboardingProcess = ({ initial = null, mine = false }: { initial?: Onboard
     if (!(await save("submit", true))) return;
     setSubmitted(who);
     // A signed-in client's answers stay on their record, and so on the page.
-    if (mine) {
-      setSubmittedAt(new Date().toISOString());
-      setEditing(false);
-    } else reset();
-    window.scrollTo({ top: 0 });
-  };
-
-  // From reading to changing — at a step, and an item on it, if they are named.
-  const edit = (index = current, item?: string) => {
-    const own = ownItems(steps[index].id);
-    setFailure(null);
-    setCurrent(index);
-    setOpenItem(isAccordion(steps[index].id) ? (item ?? own[0] ?? null) : null);
-    setEditing(true);
-    window.scrollTo({ top: 0 });
-  };
-
-  // And back. What is on the form is saved first, so what is read is never an answer the
-  // team doesn't have; if that fails, the form stays open and says why.
-  const stopEditing = async () => {
-    if (saving || !(await save("later"))) return;
-    setEditing(false);
+    if (mine) setSubmittedAt(new Date().toISOString());
+    else reset();
     window.scrollTo({ top: 0 });
   };
 
@@ -1939,27 +1943,16 @@ const OnboardingProcess = ({ initial = null, mine = false }: { initial?: Onboard
     }
   };
 
-  // The same item as it is read back, once the onboarding has been handed in.
-  const viewOf = (item: string) => (
-    <>
-      <ReadBack rows={readBack(item, answers, { competitors, pages, features, files })} />
-      {/* About you: the goals as a plan, as they are shown while being answered. */}
-      {item === "contact" ? <GoalPlan answers={answers} /> : null}
-    </>
-  );
-
   const nextStep = steps[current + 1];
 
   return (
     <MotionConfig reducedMotion="user">
       <div className={`${poppins.className} flex flex-col gap-4.5`}>
-        {/* The title — and, once the onboarding has been handed in, that it has, with the way
-            into editing it (or, while editing, out of it and to handing it in again). */}
+        {/* The title — and, once the onboarding has been handed in, that it has. */}
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div>
-            <div className="text-[11px] font-semibold tracking-[0.04em] text-[#2f5fd8] uppercase">BayShore · Client onboarding</div>
-            <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1.5">
-              <h1 className="text-[28px] leading-tight font-bold text-[#0b0c24]">{viewing ? "Your onboarding" : handedIn ? "Edit your onboarding" : "Let\u2019s get your accounts set up"}</h1>
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
+              <h1 className="text-[28px] leading-tight font-bold text-[#0b0c24]">{handedIn ? "Your onboarding" : "Let\u2019s get your accounts set up"}</h1>
               {handedIn ? (
                 // The date is the reader's own, which the server can't know.
                 <span className="inline-flex items-center gap-1.5 rounded-full bg-[#e7f6ec] px-2.5 py-1 text-[11.5px] font-semibold whitespace-nowrap text-[#15803d]" suppressHydrationWarning>
@@ -1969,22 +1962,6 @@ const OnboardingProcess = ({ initial = null, mine = false }: { initial?: Onboard
             </div>
             {handedIn ? null : <p className="mt-1.5 max-w-180 text-[13px] text-[#6b7280]">One step at a time. It takes about 10 minutes, and you can skip anything you&apos;re not sure about.</p>}
           </div>
-          {viewing ? (
-            <button type="button" onClick={() => edit(current, openItem ?? undefined)} className="inline-flex cursor-pointer items-center gap-2 rounded-lg bg-[#0b0c24] px-5 py-2.5 text-[13px] font-semibold text-white hover:bg-[#1e2140]">
-              <Pencil size={14} strokeWidth={2.25} /> Edit
-            </button>
-          ) : reading ? (
-            <div className="flex items-center gap-2.5">
-              <button type="button" disabled={saving !== null} onClick={stopEditing} className="cursor-pointer rounded-lg border border-[#e2e5e9] bg-white px-5 py-2.5 text-[13px] font-semibold text-[#1f2530] hover:bg-[#f3f4f6] disabled:cursor-wait disabled:opacity-60">
-                Stop editing
-              </button>
-              {handedIn ? (
-                <button type="button" disabled={saving !== null} onClick={submit} className="cursor-pointer rounded-lg bg-[#0b0c24] px-5 py-2.5 text-[13px] font-semibold text-white hover:bg-[#1e2140] disabled:cursor-wait disabled:opacity-80">
-                  Resubmit
-                </button>
-              ) : null}
-            </div>
-          ) : null}
         </div>
 
         {/* On a narrow screen the step list is out of sight, so the step in hand is named here. */}
@@ -2025,10 +2002,10 @@ const OnboardingProcess = ({ initial = null, mine = false }: { initial?: Onboard
                 </div>
 
                 <div className="flex flex-col gap-3.5">
-                  {items.map((item, index) => {
+                  {/* The website's login is answered inside Hosting (CmsAccess), not on a card of its own. */}
+                  {items.filter((item) => item !== "cms" || !items.includes("hosting")).map((item) => {
                     const status = statusOf(item);
-                    const open = !accordion || openItem === item;
-                    const after = items[index + 1];
+                    const open = !accordion || openItem === item || (item === "hosting" && openItem === "cms");
                     return (
                       <div
                         key={item}
@@ -2062,18 +2039,10 @@ const OnboardingProcess = ({ initial = null, mine = false }: { initial?: Onboard
                         )}
 
                         {accordion ? (
+                          // Moving on is the page's own Next, below the step.
                           <Collapse open={open}>
-                            <div className="pt-3">
-                              {viewing ? viewOf(item) : bodyOf(item)}
-                              <div className="mt-4 flex justify-end border-t border-[#e6e8eb] pt-3.5">
-                                <button type="button" className={smallButton} onClick={() => (after ? setOpenItem(after) : nextStep ? go(current + 1) : setOpenItem(null))}>
-                                  {after ? `Next: ${ITEM_TITLES[after]} →` : nextStep ? `${viewing ? "Go" : "Done, go"} to ${nextStep.title} →` : "Done"}
-                                </button>
-                              </div>
-                            </div>
+                            <div className="pt-3">{bodyOf(item)}</div>
                           </Collapse>
-                        ) : viewing ? (
-                          viewOf(item)
                         ) : (
                           bodyOf(item)
                         )}
@@ -2113,9 +2082,7 @@ const OnboardingProcess = ({ initial = null, mine = false }: { initial?: Onboard
               ) : null}
             </AnimatePresence>
 
-            {/* While only reading, the steps are moved between from the list beside the form; on a
-                narrow screen that list is out of sight, so Back and Next stay there. */}
-            <div className={`mt-4 flex flex-wrap items-center justify-between gap-3 ${viewing ? "lg:hidden" : ""}`}>
+            <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
               <button
                 type="button"
                 disabled={saving !== null}
@@ -2125,43 +2092,33 @@ const OnboardingProcess = ({ initial = null, mine = false }: { initial?: Onboard
                 Back
               </button>
               <div className="ml-auto flex items-center gap-4">
-                {viewing ? (
-                  nextStep ? (
-                    <button type="button" onClick={() => go(current + 1)} className="cursor-pointer rounded-lg border border-[#e2e5e9] bg-white px-5 py-2.5 text-[13px] font-semibold text-[#1f2530] hover:bg-[#f3f4f6]">
-                      Next: {nextStep.title}
-                    </button>
-                  ) : null
-                ) : (
-                  <>
-                    <button
-                      type="button"
-                      disabled={saving !== null}
-                      onClick={saveForLater}
-                      className="cursor-pointer p-1.5 text-[12.5px] font-medium text-[#6b7280] underline underline-offset-[3px] hover:text-[#1f2530] disabled:cursor-wait disabled:opacity-60"
-                    >
-                      {saving === "later" ? "Saving…" : "Save and finish later"}
-                    </button>
-                    <button
-                      type="button"
-                      disabled={saving !== null}
-                      aria-busy={saving === "step" || saving === "submit"}
-                      onClick={() => (nextStep ? go(current + 1) : submit())}
-                      className="inline-flex cursor-pointer items-center gap-2 rounded-lg bg-[#0b0c24] px-5 py-2.5 text-[13px] font-semibold text-white hover:bg-[#1e2140] disabled:cursor-wait disabled:opacity-80"
-                    >
-                      {saving === "step" || saving === "submit" ? (
-                        <>
-                          <Loader2 size={14} strokeWidth={2.5} className="animate-spin" /> {saving === "submit" ? "Submitting…" : "Saving…"}
-                        </>
-                      ) : nextStep ? (
-                        `Next: ${nextStep.title}`
-                      ) : handedIn ? (
-                        "Resubmit onboarding"
-                      ) : (
-                        "Submit onboarding"
-                      )}
-                    </button>
-                  </>
-                )}
+                <button
+                  type="button"
+                  disabled={saving !== null}
+                  onClick={saveForLater}
+                  className="cursor-pointer p-1.5 text-[12.5px] font-medium text-[#6b7280] underline underline-offset-[3px] hover:text-[#1f2530] disabled:cursor-wait disabled:opacity-60"
+                >
+                  {saving === "later" ? "Saving…" : "Save and finish later"}
+                </button>
+                <button
+                  type="button"
+                  disabled={saving !== null}
+                  aria-busy={saving === "step" || saving === "submit"}
+                  onClick={() => (nextStep ? go(current + 1) : submit())}
+                  className="inline-flex cursor-pointer items-center gap-2 rounded-lg bg-[#0b0c24] px-5 py-2.5 text-[13px] font-semibold text-white hover:bg-[#1e2140] disabled:cursor-wait disabled:opacity-80"
+                >
+                  {saving === "step" || saving === "submit" ? (
+                    <>
+                      <Loader2 size={14} strokeWidth={2.5} className="animate-spin" /> {saving === "submit" ? "Submitting…" : "Saving…"}
+                    </>
+                  ) : nextStep ? (
+                    `Next: ${nextStep.title}`
+                  ) : handedIn ? (
+                    "Resubmit onboarding"
+                  ) : (
+                    "Submit onboarding"
+                  )}
+                </button>
               </div>
             </div>
           </form>
@@ -2254,6 +2211,9 @@ const OnboardingProcess = ({ initial = null, mine = false }: { initial?: Onboard
                 </motion.div>
               ) : null}
             </AnimatePresence>
+
+            {/* Comments are on the client's own record: only for a client who is signed in. */}
+            {mine && comments ? <StepComments stepId={step.id} stepTitle={step.title} name={text(answers, "contact.name")} initial={comments} /> : null}
           </aside>
         </div>
 

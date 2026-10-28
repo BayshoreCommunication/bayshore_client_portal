@@ -210,7 +210,11 @@ export default async function proxy(req: NextRequest) {
   };
 
   if (isAuthRoute) {
-    return persistCookie(NextResponse.redirect(new URL("/dashboard", req.nextUrl)));
+    // Already signed in: on to the page a link asked for (an email's "Book your onboarding call"
+    // is /sign-in?callbackUrl=/onboarding?book=1) — only a page of this portal, never another site.
+    const asked = req.nextUrl.searchParams.get("callbackUrl");
+    const next = asked && asked.startsWith("/") && !asked.startsWith("//") ? asked : "/dashboard";
+    return persistCookie(NextResponse.redirect(new URL(next, req.nextUrl)));
   }
 
   // Tell the page being rendered which path it is for: a layout can't see that on its own, and
