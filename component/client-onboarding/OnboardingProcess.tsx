@@ -1,10 +1,9 @@
 "use client";
 
 import { Fragment, useEffect, useRef, useState, type DragEvent, type ReactNode } from "react";
-import Image from "next/image";
 import Link from "next/link";
 import { AnimatePresence, MotionConfig, motion } from "framer-motion";
-import { Building2, Camera, Check, ChevronDown, CircleAlert, Copy, ExternalLink, Globe, Info, LifeBuoy, Loader2, Lock, Mail, MapPin, Palette, Plus, Server, Target, Upload, User, Users, X, type LucideIcon } from "lucide-react";
+import { Building2, Camera, Check, ChevronDown, CircleAlert, Copy, ExternalLink, Globe, Info, LifeBuoy, Loader2, Lock, Mail, MapPin, Palette, Plus, Server, ShieldCheck, Target, Upload, User, Users, X, type LucideIcon } from "lucide-react";
 import { deleteOnboardingAction, startOnboardingAction, updateMyOnboardingAction, updateOnboardingAction, type Onboarding, type OnboardingComment, type OnboardingFile } from "@/app/actions/onboarding";
 import { formatFileSize } from "@/component/projects/projectUi";
 import { poppins } from "@/component/shared/fonts";
@@ -43,6 +42,7 @@ import {
   statusesOf,
   toBackend,
   type Account,
+  type Grant,
   type Answers,
   type Competitor,
   type Media,
@@ -1088,70 +1088,107 @@ const LogoItem = ({ form }: { form: Form }) => {
   );
 };
 
-// A Google or social account: whether they have it, and then either how we get in, or
-// whether we should make one.
-// Access given to our own profile on the platform — a Facebook Page is shared with a person,
-// not with an email. It shows the profile to add, and then there are just two things to say:
-// access is given, or help is needed. (One takes the other back; a second click takes it back itself.)
-const ProfileAccess = ({ form, account }: { form: Form; account: Account & { profile: NonNullable<Account["profile"]> } }) => {
-  const { id, profile } = account;
+// Where a social account's access stands, as the client sees it: still to give (Pending), given
+// and waiting for us to accept (Invited), in use (Connected), and checked by us (Verified).
+type AccessStatus = "Pending" | "Invited" | "Connected" | "Verified";
+const ACCESS_STATUS: Record<AccessStatus, string> = {
+  Pending: "border-[#fcd34d] bg-[#fffbeb] text-[#b45309]",
+  Invited: "border-[#bfd3f8] bg-[#eff4fd] text-[#2f5fd8]",
+  Connected: "border-[#86efac] bg-[#f0fdf4] text-[#15803d]",
+  Verified: "border-[#16a34a] bg-[#16a34a] text-white",
+};
+const StatusPill = ({ status }: { status: AccessStatus }) => (
+  <span className={`inline-flex shrink-0 items-center gap-1 rounded-full border px-2.5 py-0.5 text-[11px] font-semibold ${ACCESS_STATUS[status]}`}>
+    <span className="h-1.5 w-1.5 rounded-full bg-current" />
+    {status}
+  </span>
+);
+
+// How a platform's access is given, in numbered steps, with what it lets us do.
+const AccessGuide = ({ method, status, steps, required, note, children }: { method: string; status: AccessStatus; steps: string[]; required: string; note?: string; children?: ReactNode }) => (
+  <div className="mt-3 rounded-xl border border-[#e6e8eb] bg-[#fafbfc]">
+    <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[#eef0f3] px-4 py-2.5">
+      <span className="text-[11.5px] text-[#6b7280]">
+        Access method: <b className="font-semibold text-[#1f2530]">{method}</b>
+      </span>
+      <StatusPill status={status} />
+    </div>
+    <div className="px-4 py-3.5">
+      {children}
+      <ol className="flex list-none flex-col gap-2">
+        {steps.map((step, index) => (
+          <li key={step} className="flex items-start gap-2.5 text-[12.5px] leading-normal text-[#374151]">
+            <span className="mt-px grid h-5 w-5 shrink-0 place-items-center rounded-full bg-[#0b0c24] text-[10.5px] font-bold text-white">{index + 1}</span>
+            <span>
+              <Rich text={step} />
+            </span>
+          </li>
+        ))}
+      </ol>
+      <div className="mt-3.5 flex items-start gap-2 rounded-lg border border-[#d1fae5] bg-[#f0fdf4] px-3 py-2.5 text-[12px] leading-normal text-[#14532d]">
+        <ShieldCheck size={15} strokeWidth={2.25} className="mt-px shrink-0 text-[#16a34a]" />
+        <span>
+          <b className="font-semibold">Required:</b> {required}
+        </span>
+      </div>
+      {note ? (
+        <div className="mt-2 flex items-start gap-2 text-[11.5px] leading-normal text-[#6b7280]">
+          <Info size={13} strokeWidth={2.25} className="mt-0.5 shrink-0" />
+          <span>{note}</span>
+        </div>
+      ) : null}
+    </div>
+  </div>
+);
+
+// Access given on the platform itself — to our business, our Google account or our profile —
+// never a password. What to enter there (to copy), the steps, the official place to do it, and
+// then: access is given, or help is needed. (One takes the other back; a second click takes it back itself.)
+const GrantAccess = ({ form, account, grant }: { form: Form; account: Account; grant: Grant }) => {
+  const { id } = account;
   const given = form.answers[`${id}.done`] === true;
   const needsHelp = form.answers[`${id}.help`] === true;
-  const shown = profile.url.replace(/^https?:\/\/(www\.)?/, "").replace(/\/$/, "");
-
   const choose = (which: "done" | "help") =>
     form.patch({ [`${id}.access`]: "invite", [`${id}.done`]: which === "done" && !given, [`${id}.help`]: which === "help" && !needsHelp });
-  // The username is what gets typed into the platform's "add people" search.
   const copy = () => {
-    if (!navigator.clipboard) return form.say(profile.username);
-    navigator.clipboard.writeText(profile.username).then(
-      () => form.say("Username copied."),
-      () => form.say(profile.username),
+    if (!navigator.clipboard) return form.say(grant.ours.value);
+    navigator.clipboard.writeText(grant.ours.value).then(
+      () => form.say(`${grant.ours.label} copied.`),
+      () => form.say(grant.ours.value),
     );
   };
-
   const choiceClass = "inline-flex cursor-pointer items-center gap-2 rounded-lg border px-4 py-2.5 text-[12.5px] font-semibold transition-colors";
 
   return (
     <>
-      <p className={questionClass}>Add our {account.short} profile as an admin of your Page</p>
-      <div className="rounded-xl border border-[#cfdcf6] bg-[#eff4fd] p-4">
-        <div className="flex flex-wrap items-center gap-3">
-          {/* The profile's picture, with the platform's mark on its corner. */}
-          <span className="relative shrink-0">
-            <Image src={profile.image} alt="" width={48} height={48} className="h-12 w-12 rounded-full border-2 border-white object-cover shadow-[0_1px_3px_rgba(15,23,42,0.18)]" />
-            <span aria-hidden="true" className="absolute -right-1 -bottom-1 flex h-5 w-5 items-center justify-center rounded-full border-2 border-white bg-[#1877f2] font-serif text-[12px] leading-none font-bold text-white">
-              f
-            </span>
-          </span>
+      <AccessGuide method={grant.method} status={given ? "Invited" : "Pending"} steps={grant.steps} required={grant.required} note={grant.note}>
+        {/* What they enter on the platform, to copy. */}
+        <div className="mb-3.5 flex flex-wrap items-center gap-2.5 rounded-lg border border-[#cfdcf6] bg-[#eff4fd] px-3 py-2.5">
           <div className="min-w-0 flex-1">
-            <div className="text-[11px] font-medium text-[#6b7280]">Our {account.short} profile</div>
-            <div className="flex items-center gap-1.5">
-              <span className="truncate text-[13.5px] font-semibold text-[#0b0c24]">{profile.username}</span>
-              <button
-                type="button"
-                onClick={copy}
-                aria-label="Copy username"
-                title="Copy username"
-                className="inline-flex shrink-0 cursor-pointer items-center gap-1 rounded-md border border-[#cfdcf6] bg-white px-1.5 py-0.5 text-[11px] font-semibold text-[#2f5fd8] hover:border-[#2f5fd8]"
-              >
-                <Copy size={12} strokeWidth={2.25} /> Copy
-              </button>
-            </div>
-            <a href={profile.url} target="_blank" rel="noopener noreferrer" className="block truncate text-[12px] font-medium text-[#2f5fd8] underline underline-offset-[3px]">
-              {shown}
-            </a>
+            <div className="text-[11px] font-medium text-[#6b7280]">{grant.ours.label}</div>
+            {grant.ours.link ? (
+              <a href={grant.ours.link} target="_blank" rel="noopener noreferrer" className="block truncate font-mono text-[13px] font-semibold text-[#2f5fd8] underline underline-offset-[3px]">
+                {grant.ours.value}
+              </a>
+            ) : (
+              <div className="truncate font-mono text-[13px] font-semibold text-[#0b0c24]">{grant.ours.value}</div>
+            )}
           </div>
-          <a href={profile.url} target="_blank" rel="noopener noreferrer" className={`${smallButton} shrink-0 no-underline`}>
-            Open <ExternalLink size={13} strokeWidth={2.25} />
-          </a>
+          <button type="button" onClick={copy} className={`${smallButton} shrink-0`}>
+            <Copy size={13} strokeWidth={2.25} /> Copy
+          </button>
         </div>
-        <p className="mt-3 border-t border-[#cfdcf6] pt-3 text-[12px] leading-normal text-[#374151]">
-          <Rich text={profile.how} />
-        </p>
-      </div>
+      </AccessGuide>
 
       <div role="group" aria-label={`Access to your ${account.name}`} className="mt-3 flex flex-wrap gap-2">
+        <a
+          href={grant.url}
+          target="_blank"
+          rel="noopener noreferrer"
+          className={`${choiceClass} border-[#0b0c24] bg-[#0b0c24] text-white no-underline hover:bg-[#1f2547]`}
+        >
+          Grant access <ExternalLink size={14} strokeWidth={2.25} />
+        </a>
         <button
           type="button"
           aria-pressed={given}
@@ -1169,9 +1206,10 @@ const ProfileAccess = ({ form, account }: { form: Form; account: Account & { pro
           <LifeBuoy size={15} strokeWidth={2.25} /> I need help
         </button>
       </div>
+      <p className={`${hintClass} mt-2`}>{grant.open} opens in a new tab.</p>
       <Collapse open={given}>
         <Note tone="green" icon={Check}>
-          Thanks. We&apos;ll accept the invite and confirm by email.
+          Thanks. We&apos;ll accept the invite, check the permissions work, and confirm by email.
         </Note>
       </Collapse>
       <Collapse open={needsHelp}>
@@ -1211,63 +1249,39 @@ const LoginFields = ({ form, account }: { form: Form; account: Account }) => {
   );
 };
 
-// An account that rides on another one — Instagram, on the Facebook Page it is connected to.
-// Access to that one already lets us post here, so for posting nothing more is asked. Work on
-// the account itself (its profile, its settings, setting it up) needs its own login.
-const LinkedAccess = ({ form, account, via }: { form: Form; account: Account; via: Account }) => {
+// The business email: its login, through the secure form that "Connect Email" opens.
+const ConnectEmail = ({ form, account, connect }: { form: Form; account: Account; connect: NonNullable<Account["connect"]> }) => {
   const { id } = account;
-  const access = form.answers[`${id}.access`];
-  const viaGiven = form.answers[`${via.id}.done`] === true;
-
+  const typed = Boolean(form.answers[`${id}.username`]) && (form.answers[`${id}.passwordSet`] === true || Boolean(form.answers[`${id}.password`]));
+  const [open, setOpen] = useState(() => Boolean(form.answers[`${id}.username`]) || form.answers[`${id}.passwordSet`] === true);
   return (
     <>
-      {/* Only a box to tick: whether the two are connected already is all it asks. */}
-      <label className="mt-3 flex cursor-pointer items-center gap-2 text-[12.5px] font-medium text-[#374151]">
-        <input
-          type="checkbox"
-          checked={form.answers[`${id}.connected`] === true}
-          className="h-4 w-4 accent-[#2f5fd8]"
-          onChange={(event) =>
-            // Connected already, posting needs nothing more: ticking it picks "Just post for me" —
-            // which gives the login up, as picking it by hand does. The other choice is still theirs to make.
-            form.patch(event.target.checked ? { [`${id}.connected`]: true, [`${id}.access`]: "invite", [`${id}.password`]: "", [`${id}.passwordSet`]: false } : { [`${id}.connected`]: false })
-          }
-        />
-        My {account.short} is already connected to my {via.name}
-      </label>
-      <p className={questionClass}>What do you need us to do on {account.short}?</p>
-      <Options
-        label={`What do you need us to do on ${account.short}?`}
-        value={access}
-        // Leaving "edit, update or set it up" gives the login up: the backend drops the password with it.
-        onChange={(value) => form.patch({ [`${id}.access`]: value, ...(value === "secure" ? {} : { [`${id}.password`]: "", [`${id}.passwordSet`]: false }) })}
-        choices={[
-          { value: "invite", label: "Just post for me" },
-          { value: "secure", label: "Edit, update or set it up" },
-        ]}
-      />
-      <Collapse open={access === "invite"}>
-        {viaGiven ? (
-          <Note tone="green" icon={Check}>
-            Nothing more to do here. You&apos;ve given us access to your {via.name}, and that lets us post to the {account.short} connected to it.
-          </Note>
-        ) : (
-          <Note tone="blue" icon={Info}>
-            Nothing more to do here. Access to your {via.name} lets us post to the {account.short} connected to it — give it in the {via.name} item above.
-          </Note>
-        )}
-      </Collapse>
-      <LoginFields form={form} account={account} />
+      <AccessGuide method="Secure Client Portal form" status={typed ? "Connected" : "Pending"} steps={connect.steps} required={connect.required} note={connect.note} />
+      {open ? (
+        <div className="mt-3 rounded-xl border border-[#cfdcf6] bg-white p-4">
+          <p className={`${firstQuestionClass} flex items-center gap-1.5`}>
+            <Lock size={14} strokeWidth={2.25} className="text-[#2f5fd8]" /> Secure credential form
+          </p>
+          <LoginFields form={form} account={account} />
+        </div>
+      ) : (
+        <button
+          type="button"
+          onClick={() => setOpen(true)}
+          className="mt-3 inline-flex cursor-pointer items-center gap-2 rounded-lg border border-[#0b0c24] bg-[#0b0c24] px-4 py-2.5 text-[12.5px] font-semibold text-white hover:bg-[#1f2547]"
+        >
+          <Mail size={15} strokeWidth={2.25} /> Connect Email
+        </button>
+      )}
     </>
   );
 };
 
 const AccountItem = ({ form, account, google }: { form: Form; account: Account; google: boolean }) => {
-  const { id, steps, profile } = account;
-  const via = account.via ? SOCIAL.find((other) => other.id === account.via) : undefined;
-  // Our profile to add, the account it rides on, or its own login: each has its own way in,
-  // in place of the choice between an invite and a secure link.
-  const special = Boolean(profile || via || account.login);
+  const { id, steps, grant, connect } = account;
+  // Access given on the platform, or its own login: each has its own way in, in place of the
+  // choice between an invite and a secure link.
+  const special = Boolean(grant || account.login);
   const has = form.answers[`${id}.has`];
   const access = form.answers[`${id}.access`];
 
@@ -1279,12 +1293,12 @@ const AccountItem = ({ form, account, google }: { form: Form; account: Account; 
         value={has}
         choices={account.yesOrNo ? YES_NO_UNSURE.filter((choice) => choice.value !== "unsure") : YES_NO_UNSURE}
         // With a profile to add, or an email to invite, there is only one way to give access, so it isn't asked.
-        onChange={(value) => form.patch({ [`${id}.has`]: value, ...((profile || steps) && value === "yes" ? { [`${id}.access`]: "invite" } : {}) })}
+        onChange={(value) => form.patch({ [`${id}.has`]: value, ...((grant || steps) && value === "yes" ? { [`${id}.access`]: "invite" } : {}) })}
       />
       {/* Every account they have starts with where it is; how we get in differs from one to the next. */}
       <Reveal open={special && fits(has, "yes")} when={captionFor(has, "If you have it")}>
         {account.placeholder ? <Field form={form} id={`${id}-link`} name={`${id}.link`} label="Link or name" hint="(optional)" placeholder={account.placeholder} first /> : null}
-        {profile ? <ProfileAccess form={form} account={{ ...account, profile }} /> : via ? <LinkedAccess form={form} account={account} via={via} /> : <LoginFields form={form} account={account} />}
+        {grant ? <GrantAccess form={form} account={account} grant={grant} /> : connect ? <ConnectEmail form={form} account={account} connect={connect} /> : <LoginFields form={form} account={account} />}
       </Reveal>
       <Reveal open={!special && fits(has, "yes")} when={captionFor(has, "If you have it")}>
         {account.placeholder ? <Field form={form} id={`${id}-link`} name={`${id}.link`} label="Link or name" hint="(optional)" placeholder={account.placeholder} first /> : null}

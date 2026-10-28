@@ -1,5 +1,3 @@
-import type { StaticImageData } from "next/image";
-import facebookProfilePicture from "@/public/assets/bayshore-logo.webp";
 import type { Onboarding, OnboardingAccount, OnboardingAnswers, OnboardingFile, OnboardingMedia } from "@/app/actions/onboarding";
 
 // What the onboarding form asks, how each answer is read, and how the answers go to the
@@ -8,6 +6,11 @@ import type { Onboarding, OnboardingAccount, OnboardingAnswers, OnboardingFile, 
 
 // The address clients invite to their accounts. Change it to the team's access email.
 export const AGENCY_EMAIL = "info@bayshorecommunication.org";
+// Who a client gives access to on Meta (Facebook, Instagram) and LinkedIn. Placeholders until
+// the agency's own are in.
+export const AGENCY_META_BUSINESS_ID = "1234567890123456";
+export const AGENCY_LINKEDIN = "linkedin.com/company/bayshore-communication";
+export const AGENCY_TIKTOK_BUSINESS_CENTER_ID = "7000000000000000000";
 
 // ── Answers ──────────────────────────────────────────────────────────────────
 
@@ -151,6 +154,16 @@ export const accessOf = (group: PlatformGroup, platform: string): string[] | "bu
 // `via` is for an account that rides on another one (Instagram, on the Facebook Page it is
 // connected to): access to that one already lets us post here, so no access of its own is asked
 // for — unless the work needs the account's own login, shared through a secure link.
+export type Grant = {
+  method: string;
+  url: string;
+  open: string;
+  ours: { label: string; value: string; link?: string };
+  steps: string[];
+  required: string;
+  note?: string;
+};
+
 export type Account = {
   id: string;
   name: string;
@@ -158,8 +171,11 @@ export type Account = {
   placeholder?: string;
   role?: string;
   steps: string[] | null;
-  profile?: { url: string; username: string; image: StaticImageData; how: string };
-  via?: string;
+  // Access given on the platform itself, to our business or account — no password: the
+  // official place to do it, what to enter there, the steps, and what it lets us do.
+  grant?: Grant;
+  // The email account: its login, given through the secure form (the steps to say so).
+  connect?: { steps: string[]; required: string; note: string };
   // The account's own login (username or email, and password) is how we get in: it is asked
   // for on the form as soon as they say they have the account.
   login?: boolean;
@@ -243,28 +259,67 @@ export const SOCIAL: Account[] = [
     short: "Facebook",
     placeholder: "facebook.com/yourbusiness",
     steps: null,
-    profile: {
-      url: "https://www.facebook.com/mdsalmanhossain990/",
-      username: "mdsalmanhossain990",
-      image: facebookProfilePicture,
-      how: "On your Page, open *Settings → Page access*, click *Add new*, search for this profile and give it *full control*.",
+    grant: {
+      method: "Meta Business Suite / Business Portfolio",
+      url: "https://business.facebook.com/",
+      open: "Open Meta Business Suite",
+      ours: { label: "Our Business ID", value: AGENCY_META_BUSINESS_ID },
+      steps: [
+        "Log in to Facebook and open *business.facebook.com*.",
+        "Open *Business Settings* or *Business Portfolio settings*.",
+        "Select *Users*, then *Partners*.",
+        "Click *Add* and enter our Business ID.",
+        "Select your Facebook Page and assign the required permissions.",
+        "Save or confirm the changes.",
+      ],
+      required: "Access to manage your Facebook Page and publish approved content. Your Facebook password isn't needed.",
+      note: "No Business Portfolio? Use your Page's own access invitation instead.",
     },
   },
   {
     id: "ig",
-    name: "Instagram",
+    name: "Instagram Business Account",
     short: "Instagram",
     placeholder: "@yourbusiness",
     steps: null,
-    via: "fb",
+    grant: {
+      method: "Meta Business Suite",
+      url: "https://business.facebook.com/",
+      open: "Open Meta Business Suite",
+      ours: { label: "Our Business ID", value: AGENCY_META_BUSINESS_ID },
+      steps: [
+        "Open *business.facebook.com*.",
+        "Go to *Business Settings* or *Business Portfolio settings*.",
+        "Select *Accounts*, then *Instagram Accounts*.",
+        "Choose your Instagram Business Account.",
+        "Assign the required permissions to our business.",
+        "Save the changes.",
+      ],
+      required: "Access to manage your Instagram content and view insights. Your Instagram password isn't needed.",
+      note: "Your Instagram may need to be connected to your Facebook Page or business portfolio first.",
+    },
   },
   {
     id: "yt",
-    name: "YouTube",
+    name: "YouTube Channel",
     short: "YouTube",
     placeholder: "youtube.com/@yourbusiness",
     steps: null,
-    login: true,
+    grant: {
+      method: "YouTube Studio Permissions",
+      url: "https://studio.youtube.com/",
+      open: "Open YouTube Studio",
+      ours: { label: "Our Google account", value: AGENCY_EMAIL },
+      steps: [
+        "Open *studio.youtube.com*.",
+        "Select *Settings*, then *Permissions*.",
+        "Click *Invite*.",
+        "Enter our Google account email.",
+        "Choose the *Editor* role.",
+        "Send the invitation. We'll accept it.",
+      ],
+      required: "Permission to upload and manage videos and view channel analytics. Your channel password isn't needed.",
+    },
   },
   {
     id: "li",
@@ -272,18 +327,63 @@ export const SOCIAL: Account[] = [
     short: "LinkedIn",
     placeholder: "linkedin.com/company/…",
     steps: null,
-    login: true,
+    grant: {
+      method: "LinkedIn Page Admin",
+      url: "https://www.linkedin.com/",
+      open: "Open LinkedIn",
+      ours: { label: "Our LinkedIn profile", value: AGENCY_LINKEDIN, link: `https://www.${AGENCY_LINKEDIN}` },
+      steps: [
+        "Log in to LinkedIn and open your Company Page.",
+        "Open *Settings* or *Manage admins*.",
+        "Select *Add admin*.",
+        "Search for and select our LinkedIn profile.",
+        "Choose the *Content Admin* role.",
+        "Save the changes.",
+      ],
+      required: "Permission to publish company updates and manage your LinkedIn Page. Your LinkedIn password isn't needed.",
+      note: "The person giving access needs admin rights on the Page.",
+    },
   },
   {
     id: "tt",
-    name: "TikTok",
+    name: "TikTok Account",
     short: "TikTok",
     placeholder: "@yourbusiness",
     steps: null,
-    login: true,
+    grant: {
+      method: "TikTok Business Center / partner access",
+      url: "https://business.tiktok.com/",
+      open: "Open TikTok Business Center",
+      ours: { label: "Our Business Center ID", value: AGENCY_TIKTOK_BUSINESS_CENTER_ID },
+      steps: [
+        "Open TikTok Business Center at *business.tiktok.com*.",
+        "Open *Users* or *Partners*, depending on your account setup.",
+        "Choose the option to *add a partner* or *invite a user*.",
+        "Enter our Business Center ID.",
+        "Select your TikTok account and the relevant assets.",
+        "Assign only the permissions needed for content management or advertising.",
+        "Confirm and send the invitation.",
+      ],
+      required: "The right permissions on your TikTok account or assets. Your TikTok password isn't needed when partner access is available.",
+      note: "Menu names and permissions can differ by account type and region. If Business Center isn't available to you, use TikTok's own account authorization or invitation options.",
+    },
   },
-  // The email account itself, signed in to like the ones above. The address is its login, so no link is asked for.
-  { id: "em", name: "Email", short: "Email", steps: null, login: true, loginLabel: "Email address", question: "Do you have any personal email for credential purposes?", yesOrNo: true },
+  // The email account itself, signed in to with its login. The address is its login, so no link is asked for.
+  {
+    id: "em",
+    name: "Business Email",
+    short: "Email",
+    steps: null,
+    login: true,
+    loginLabel: "Business email address",
+    question: "Do you have a business email for us to use?",
+    yesOrNo: true,
+    connect: {
+      steps: ["Click *Connect Email*.", "Enter your business email address.", "Enter its password in the secure form.", "Save — we'll verify access and confirm when it's ready."],
+      required: "Your business email address and its password.",
+      note: "Never send an email password by ordinary email or chat — only through this form. If two-step sign-in is on, you may need to approve our first sign-in.",
+    },
+  },
 ];
 
 // ── Photos and videos ────────────────────────────────────────────────────────
@@ -775,16 +875,13 @@ const accountStanding = (answers: Answers, id: string): Standing => {
   const has = answers[`${id}.has`];
   const own = SOCIAL.find((account) => account.id === id);
   if (has === "yes") {
-    const via = own?.via;
-    const access = own?.login ? "secure" : answers[`${id}.access`];
+    const access = own?.login ? "secure" : own?.grant ? "invite" : answers[`${id}.access`];
     if (!access) return ["Choose access", "pending"];
     // Its own login is asked for on the form itself: both halves, or it isn't answered yet.
-    if (access === "secure" && (via || own?.login)) {
+    if (access === "secure" && own?.login) {
       return answers[`${id}.username`] && (answers[`${id}.password`] || answers[`${id}.passwordSet`] === true) ? ["Login shared", "done"] : TODO;
     }
     if (access === "secure") return ["Secure link coming", "followup"];
-    // Covered by the account it rides on: done once access to that one is given.
-    if (via) return [`Through ${SOCIAL.find((account) => account.id === via)?.short ?? "another account"}`, answers[`${via}.done`] === true ? "done" : "pending"];
     return inviting(answers, id);
   }
   if (has === "no") return own?.yesOrNo ? NA : wanted(answers, id, "We'll create it");
