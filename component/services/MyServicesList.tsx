@@ -107,13 +107,6 @@ const MyServicesList = ({ mine }: { mine: MyServicesData }) => {
 
   return (
     <section className={`${inter.className} mt-5 overflow-hidden rounded-2xl border border-[#e6e8eb] bg-white`}>
-      <div className="flex flex-wrap items-end justify-between gap-2 border-b border-[#f1f2f4] px-5 py-4">
-        <div>
-          <h2 className={`${poppins.className} text-[18px] leading-tight font-semibold text-[#111827]`}>Your services</h2>
-          <p className="mt-0.5 text-[12.5px] text-[#6b7280]">Everything we&apos;re doing for you, monthly and one-time. Tap one to see what&apos;s included.</p>
-        </div>
-      </div>
-
       <div className="grid grid-cols-1 divide-[#f1f2f4] lg:grid-cols-2 lg:divide-x max-lg:divide-y">
         <Group icon={Repeat} title="Monthly" hint="Running each month" color="#2f855a" background="#e4f4ea" rows={monthly} suffix="/mo" empty="No monthly services right now." />
         <Group icon={Sparkles} title="One-time" hint="Paid once, not monthly" color="#c2551b" background="#fdece0" rows={oneTime} suffix=" once" empty="No one-time services right now." />
