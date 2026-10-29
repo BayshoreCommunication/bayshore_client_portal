@@ -1805,8 +1805,8 @@ const OnboardingProcess = ({
   useRealtime<OnboardingComment>("onboarding:comment", (comment) => {
     if (!mine) return;
     putComment(comment);
-    // One on an item asks for it again, or answers that.
-    if (comment.item) reloadStanding();
+    // One from the team asks for the item (or step) again; one from them answers that.
+    reloadStanding();
   });
   useRefreshing(() => {
     if (!mine) return;
@@ -1821,8 +1821,8 @@ const OnboardingProcess = ({
   // otherwise submitted, and ours to check.
   const standingOf = (id: StepId): StepStanding => {
     const own = ownItems(id);
-    // An item the team asked them to update is to do again.
-    if (own.some((item) => updateAsked.has(controlIdOf(item)))) return "todo";
+    // A step (or an item of it) the team asked them to update is to do again, approved or not.
+    if (updateAsked.has(`step:${id}`) || own.some((item) => updateAsked.has(controlIdOf(item)))) return "todo";
     if (own.length && own.every((item) => approved.has(controlIdOf(item)))) return "approved";
     const unanswered = own.some((item) => {
       const status = statusOf(item);
@@ -2084,6 +2084,14 @@ const OnboardingProcess = ({
                     <p className="mt-0.5 text-[12.5px] text-[#6b7280]">{step.sub}</p>
                   </div>
                 </div>
+                {mine && updateAsked.has(`step:${step.id}`) ? (
+                  <div className="mb-4 flex items-start gap-2.5 rounded-xl border border-[#fcd98f] bg-[#fffbeb] px-3.5 py-3 text-[12.5px] leading-normal text-[#78350f]">
+                    <CircleAlert size={16} strokeWidth={2} className="mt-px shrink-0 text-[#b45309]" />
+                    <span>
+                      <b className="font-semibold">BayShore asked you to update this step.</b> See their comment beside the form, make the change and save, or reply there.
+                    </span>
+                  </div>
+                ) : null}
 
                 <div className="flex flex-col gap-3.5">
                   {/* The website's login is answered inside Hosting (CmsAccess), not on a card of its own. */}
