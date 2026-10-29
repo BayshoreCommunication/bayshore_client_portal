@@ -3,9 +3,9 @@
 import { useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { CheckCircle2, FileText, Loader2, MessageSquare, Paperclip, Send, X } from "lucide-react";
-import type { OnboardingComment, OnboardingCommentFile } from "@/app/actions/onboarding";
+import { listMyOnboardingCommentsAction, type OnboardingComment, type OnboardingCommentFile } from "@/app/actions/onboarding";
 import { formatFileSize } from "@/component/projects/projectUi";
-import { useRealtime } from "@/lib/realtime";
+import { useRealtime, useRefreshing } from "@/lib/realtime";
 
 // Beside the onboarding form: comments on the step that is open — a question for the team, or a
 // note about an answer, with files if they like — and, under each, the team's replies from the
@@ -117,6 +117,8 @@ const StepComments = ({ stepId, stepTitle, name, initial }: { stepId: string; st
   useRealtime<OnboardingComment>("onboarding:comment", (comment) =>
     setAll((now) => (now.some((entry) => entry._id === comment._id) ? now.map((entry) => (entry._id === comment._id ? comment : entry)) : [...now, comment])),
   );
+  // And reloaded now and then, in case the live connection is down.
+  useRefreshing(() => void listMyOnboardingCommentsAction().then((result) => result.ok && result.data && setAll(result.data)));
   const comments = all.filter((comment) => comment.step === stepId);
   const ready = (draft.trim() !== "" || files.length > 0) && !sending;
 
