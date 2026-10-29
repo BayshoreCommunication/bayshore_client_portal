@@ -362,6 +362,9 @@ export interface OnboardingCommentReply {
 export interface OnboardingComment {
   _id: string;
   step: string;
+  // The item of the step it is about, when it is about one ("social.facebook"), and its name.
+  item?: string;
+  itemLabel?: string;
   // Who wrote it: the client, or their BayShore team. Missing means the client.
   side?: "client" | "team";
   authorName: string;

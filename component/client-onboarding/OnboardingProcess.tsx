@@ -4,11 +4,12 @@ import { Fragment, useEffect, useRef, useState, type DragEvent, type ReactNode }
 import Link from "next/link";
 import { AnimatePresence, MotionConfig, motion } from "framer-motion";
 import { Building2, Camera, Check, ChevronDown, CircleAlert, Copy, ExternalLink, Globe, Info, LifeBuoy, Loader2, Lock, Mail, MapPin, Palette, Plus, Server, ShieldCheck, Target, Upload, User, Users, X, type LucideIcon } from "lucide-react";
-import { deleteOnboardingAction, getMyOnboardingAction, startOnboardingAction, updateMyOnboardingAction, updateOnboardingAction, type Onboarding, type OnboardingComment, type OnboardingFile } from "@/app/actions/onboarding";
+import { deleteOnboardingAction, getMyOnboardingAction, listMyOnboardingCommentsAction, startOnboardingAction, updateMyOnboardingAction, updateOnboardingAction, type Onboarding, type OnboardingComment, type OnboardingFile } from "@/app/actions/onboarding";
 import { formatFileSize } from "@/component/projects/projectUi";
 import { poppins } from "@/component/shared/fonts";
 import StepComments from "./StepComments";
-import { useRealtime } from "@/lib/realtime";
+import ItemNotes from "./ItemNotes";
+import { useRealtime, useRefreshing } from "@/lib/realtime";
 import {
   onBuilder,
   hostOf,
@@ -1704,7 +1705,7 @@ const withoutTypedPasswords = (answers: Answers): Answers => {
 //
 // `mine` is for a client who is signed in: `initial` is then their own client record — so the
 // form opens already filled in with what we hold on them — and their answers are saved on it.
-const OnboardingProcess = ({ initial = null, mine = false, comments }: { initial?: Onboarding | null; mine?: boolean; comments?: OnboardingComment[] }) => {
+const OnboardingProcess = ({ initial = null, mine = false, comments: initialComments }: { initial?: Onboarding | null; mine?: boolean; comments?: OnboardingComment[] }) => {
   const [seed] = useState(() => (initial ? fromBackend(initial) : null));
   const [answers, setAnswers] = useState<Answers>(seed?.answers ?? BLANK_ANSWERS);
   const [competitors, setCompetitors] = useState<Competitor[]>(seed?.competitors ?? BLANK_COMPETITORS);
@@ -1773,6 +1774,18 @@ const OnboardingProcess = ({ initial = null, mine = false, comments }: { initial
 
   // What the account manager has approved (company-portal: OnboardingControls), by item.
   const [approved, setApproved] = useState(() => new Set(initial?.onboarding?.approved ?? []));
+  // The comments on the form — the step's box (StepComments) and each item's notes (ItemNotes) —
+  // live from either side (backend → onboarding:comment), and reloaded now and then in case the
+  // live connection is down. None when they couldn't be loaded.
+  const [comments, setComments] = useState(initialComments);
+  const putComment = (comment: OnboardingComment) =>
+    setComments((now) => (now ? (now.some((entry) => entry._id === comment._id) ? now.map((entry) => (entry._id === comment._id ? comment : entry)) : [...now, comment]) : now));
+  useRealtime<OnboardingComment>("onboarding:comment", (comment) => {
+    if (mine) putComment(comment);
+  });
+  useRefreshing(() => {
+    if (mine && comments) void listMyOnboardingCommentsAction().then((result) => result.ok && result.data && setComments(result.data));
+  });
   // The team approved more (backend → notifications:new): show it at once.
   useRealtime<{ type?: string }>("notifications:new", (news) => {
     if (!mine || news?.type !== "onboarding_approved") return;
@@ -2028,6 +2041,14 @@ const OnboardingProcess = ({ initial = null, mine = false, comments }: { initial
                   {items.filter((item) => item !== "cms" || !items.includes("hosting")).map((item) => {
                     const status = statusOf(item);
                     const open = !accordion || openItem === item || (item === "hosting" && openItem === "cms");
+                    // What the team asked the client to fix on this item (the website's login, with Hosting).
+                    const noteId = controlIdOf(item);
+                    const notes = mine && comments ? comments.filter((comment) => comment.item === noteId || (item === "hosting" && comment.item === "cms")) : [];
+                    const noteApproved = approved.has(noteId);
+                    const updateAsked = !noteApproved && notes[notes.length - 1]?.side === "team";
+                    const notesBox = notes.length ? (
+                      <ItemNotes step={step.id} item={{ id: noteId, label: ITEM_TITLES[item] }} comments={notes} approved={noteApproved} name={text(answers, "contact.name")} onPosted={putComment} />
+                    ) : null;
                     return (
                       <div
                         key={item}
@@ -2051,22 +2072,34 @@ const OnboardingProcess = ({ initial = null, mine = false, comments }: { initial
                               <ChevronDown size={15} strokeWidth={2.25} className={`shrink-0 text-[#6b7280] transition-transform ${open ? "" : "-rotate-90"}`} />
                               {ITEM_TITLES[item]}
                             </span>
-                            {status ? <Pill tone={status.tone}>{status.label}</Pill> : null}
+                            <span className="flex items-center gap-1.5">
+                              {updateAsked ? <span className="rounded-full bg-[#fef3c7] px-2.5 py-0.5 text-[11px] font-semibold whitespace-nowrap text-[#92400e]">Update asked</span> : null}
+                              {status ? <Pill tone={status.tone}>{status.label}</Pill> : null}
+                            </span>
                           </button>
                         ) : (
                           <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
                             <h3 className="text-[14px] font-semibold text-[#0b0c24]">{ITEM_TITLES[item]}</h3>
-                            {status ? <Pill tone={status.tone}>{status.label}</Pill> : null}
+                            <span className="flex items-center gap-1.5">
+                              {updateAsked ? <span className="rounded-full bg-[#fef3c7] px-2.5 py-0.5 text-[11px] font-semibold whitespace-nowrap text-[#92400e]">Update asked</span> : null}
+                              {status ? <Pill tone={status.tone}>{status.label}</Pill> : null}
+                            </span>
                           </div>
                         )}
 
                         {accordion ? (
                           // Moving on is the page's own Next, below the step.
                           <Collapse open={open}>
-                            <div className="pt-3">{bodyOf(item)}</div>
+                            <div className="pt-3">
+                              {notesBox}
+                              {bodyOf(item)}
+                            </div>
                           </Collapse>
                         ) : (
-                          bodyOf(item)
+                          <>
+                            {notesBox}
+                            {bodyOf(item)}
+                          </>
                         )}
                       </div>
                     );
@@ -2235,7 +2268,7 @@ const OnboardingProcess = ({ initial = null, mine = false, comments }: { initial
             </AnimatePresence>
 
             {/* Comments are on the client's own record: only for a client who is signed in. */}
-            {mine && comments ? <StepComments stepId={step.id} stepTitle={step.title} name={text(answers, "contact.name")} initial={comments} /> : null}
+            {mine && comments ? <StepComments stepId={step.id} stepTitle={step.title} name={text(answers, "contact.name")} all={comments} onPosted={putComment} /> : null}
           </aside>
         </div>
 

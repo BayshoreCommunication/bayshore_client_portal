@@ -3,9 +3,8 @@
 import { useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { CheckCircle2, FileText, Loader2, MessageSquare, Paperclip, Send, X } from "lucide-react";
-import { listMyOnboardingCommentsAction, type OnboardingComment, type OnboardingCommentFile } from "@/app/actions/onboarding";
+import type { OnboardingComment, OnboardingCommentFile } from "@/app/actions/onboarding";
 import { formatFileSize } from "@/component/projects/projectUi";
-import { useRealtime, useRefreshing } from "@/lib/realtime";
 
 // Beside the onboarding form: comments on the step that is open — a question for the team, or a
 // note about an answer, with files if they like — and, under each, the team's replies from the
@@ -16,7 +15,7 @@ import { useRealtime, useRefreshing } from "@/lib/realtime";
 const MAX_FILES = 5;
 const MAX_LENGTH = 1000;
 
-const initialsOf = (name: string, fallback: string) =>
+export const initialsOf = (name: string, fallback: string) =>
   name
     .trim()
     .split(/\s+/)
@@ -24,7 +23,7 @@ const initialsOf = (name: string, fallback: string) =>
     .map((part) => part[0]?.toUpperCase() ?? "")
     .join("") || fallback;
 
-const timeOf = (iso: string) => {
+export const timeOf = (iso: string) => {
   const at = new Date(iso);
   const sameDay = at.toDateString() === new Date().toDateString();
   return sameDay
@@ -33,7 +32,7 @@ const timeOf = (iso: string) => {
 };
 
 // Sends a form, reporting how much of it has gone up (0–100) as it does.
-const sendWithProgress = (url: string, form: FormData, onProgress: (percent: number) => void) =>
+export const sendWithProgress = (url: string, form: FormData, onProgress: (percent: number) => void) =>
   new Promise<{ ok: boolean; body: { data?: unknown; message?: string } | null }>((resolve, reject) => {
     const request = new XMLHttpRequest();
     request.open("POST", url);
@@ -59,7 +58,7 @@ const isImage = (file: { name: string; mimeType?: string; type?: string }) =>
 
 // What a comment came with: each picture as a thumbnail that opens it, anything else a link
 // with its name and size.
-const Files = ({ files }: { files: OnboardingCommentFile[] }) =>
+export const Files = ({ files }: { files: OnboardingCommentFile[] }) =>
   files.length ? (
     <div className="mt-1.5 flex flex-col gap-1.5">
       {files.some(isImage) ? (
@@ -105,20 +104,15 @@ const PickedFile = ({ file, onRemove }: { file: File; onRemove: () => void }) =>
   </span>
 );
 
-const StepComments = ({ stepId, stepTitle, name, initial }: { stepId: string; stepTitle: string; name: string; initial: OnboardingComment[] }) => {
-  const [all, setAll] = useState(initial);
+// `all` is every comment on the form, kept by the form (OnboardingProcess) — live, and shared with
+// the notes on each item (ItemNotes).
+const StepComments = ({ stepId, stepTitle, name, all, onPosted }: { stepId: string; stepTitle: string; name: string; all: OnboardingComment[]; onPosted: (comment: OnboardingComment) => void }) => {
   const [draft, setDraft] = useState("");
   const [files, setFiles] = useState<File[]>([]);
   const [sending, setSending] = useState(false);
   const [done, setDone] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const picker = useRef<HTMLInputElement>(null);
-  // A comment or reply from either side, live (backend → onboarding:comment): added, or updated.
-  useRealtime<OnboardingComment>("onboarding:comment", (comment) =>
-    setAll((now) => (now.some((entry) => entry._id === comment._id) ? now.map((entry) => (entry._id === comment._id ? comment : entry)) : [...now, comment])),
-  );
-  // And reloaded now and then, in case the live connection is down.
-  useRefreshing(() => void listMyOnboardingCommentsAction().then((result) => result.ok && result.data && setAll(result.data)));
   const comments = all.filter((comment) => comment.step === stepId);
   const ready = (draft.trim() !== "" || files.length > 0) && !sending;
 
@@ -143,8 +137,7 @@ const StepComments = ({ stepId, stepTitle, name, initial }: { stepId: string; st
         setError(body?.message || "Couldn't post your comment. Please try again.");
         return;
       }
-      const posted = body.data as OnboardingComment;
-      setAll((previous) => (previous.some((entry) => entry._id === posted._id) ? previous : [...previous, posted]));
+      onPosted(body.data as OnboardingComment);
       setDraft("");
       setFiles([]);
       // Said for a few seconds: it went, with its files.
@@ -192,6 +185,7 @@ const StepComments = ({ stepId, stepTitle, name, initial }: { stepId: string; st
                       ) : null}
                       <span className="text-[11px] text-[#9ca3af]">{timeOf(comment.createdAt)}</span>
                     </div>
+                    {comment.itemLabel ? <div className="mt-0.5 text-[10.5px] font-medium text-[#6b7280]">About {comment.itemLabel}</div> : null}
                     {comment.text ? (
                       <p
                         className={`mt-0.5 rounded-lg rounded-tl-sm px-3 py-2 text-[12.5px] leading-normal break-words whitespace-pre-wrap text-[#1f2530] ${comment.side === "team" ? "bg-[#eef3fd]" : "bg-[#f5f6f8]"}`}
