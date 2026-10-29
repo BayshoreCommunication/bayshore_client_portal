@@ -95,7 +95,7 @@ const MyServicesList = ({ mine }: { mine: MyServicesData }) => {
       included: entry.subServices.map((item) => item.name),
       addedAt: entry.createdAt,
     })),
-    ...(mine.plans ?? []).map((plan) => ({ key: `plan-${plan.name}`, name: plan.name, price: plan.monthly, included: plan.included, note: plan.custom ? "Made for you" : undefined, addedAt: plan.addedAt })),
+    ...(mine.plans ?? []).map((plan) => ({ key: `plan-${plan.name}`, name: plan.name, price: plan.monthly, included: plan.included, addedAt: plan.addedAt })),
     ...(mine.unpriced ?? []).map((name) => ({ key: `unpriced-${name}`, name, included: [] })),
   ];
   const oneTime: Row[] = (mine.oneTime ?? []).map((item) => ({ key: `once-${item.name}`, name: item.name, price: item.price, included: item.included ?? [], note: item.detail, addedAt: item.addedAt }));

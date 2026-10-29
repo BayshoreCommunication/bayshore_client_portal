@@ -36,7 +36,8 @@ const statLabel = "text-[12px] font-semibold tracking-[0.05em] text-[#6b7280] up
 // ── One service on offer ─────────────────────────────────────────────────────
 
 // Where a service on offer stands for this client: running each month, asked for, or not yet.
-type CardState = "idle" | "sending" | "requested" | "active";
+// "added": they asked for it and the team added it (as a one-time service, under Your services).
+type CardState = "idle" | "sending" | "requested" | "added" | "active";
 
 const ServiceCard = ({ item, group, state, error, onRequest }: { item: CatalogItem; group: CatalogGroup; state: CardState; error?: string; onRequest: () => void }) => {
   const Icon = item.icon;
@@ -90,6 +91,10 @@ const ServiceCard = ({ item, group, state, error, onRequest }: { item: CatalogIt
             <>
               <Check className="size-3.75" strokeWidth={2.5} /> Running service · monthly
             </>
+          ) : state === "added" ? (
+            <>
+              <Check className="size-3.75" strokeWidth={2.5} /> Added · in your services above
+            </>
           ) : state === "requested" ? (
             <>
               <Check className="size-3.75" strokeWidth={2.5} /> Requested · we&apos;ll be in touch
@@ -122,20 +127,25 @@ const ServiceCard = ({ item, group, state, error, onRequest }: { item: CatalogIt
 // a quote. `mine` is missing when it couldn't be loaded; `mineError` says why.
 const Services = ({ mine, mineError }: { mine?: MyServicesData; mineError?: string }) => {
   // What they asked for that the team hasn't added yet: these count as "Your requests".
-  const [requests, setRequests] = useState<string[]>(() => (mine?.requests ?? []).filter((entry) => entry.status === "open").map((entry) => entry.name));
+  // As the server last said, plus what was sent from this page since. Fresh from the server (the
+  // team added or set one aside — a live refresh), only the server's answer counts.
+  const [sent, setSent] = useState<string[]>([]);
+  const [seen, setSeen] = useState(mine);
+  if (seen !== mine) {
+    setSeen(mine);
+    setSent([]);
+  }
+  const addedRequests = (mine?.requests ?? []).filter((entry) => entry.status === "added").map((entry) => entry.name);
+  const requests = [...new Set([...(mine?.requests ?? []).filter((entry) => entry.status === "open").map((entry) => entry.name), ...sent])];
   const [sending, setSending] = useState<string | null>(null);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [filter, setFilter] = useState<string>("all");
   const [writing, setWriting] = useState(false);
   const [note, setNote] = useState("");
 
-  // Every service on the client's account, by name — but for one their team made for them (a
-  // request taken on as a custom service): its card stays as any other.
-  const active = mine ? [...(mine.plans ?? []).filter((plan) => !plan.custom).map((plan) => plan.name), ...mine.services.map((entry) => entry.service.title), ...(mine.unpriced ?? [])] : [];
-  // Everything running for them, made-for-them and one-time ones too: the chips at the top.
-  const running = mine
-    ? [...new Set([...mine.services.map((entry) => entry.service.title), ...(mine.plans ?? []).map((plan) => plan.name), ...(mine.unpriced ?? []), ...(mine.oneTime ?? []).map((item) => item.name)])]
-    : [];
+  // The services they run each month, by name. A custom service is one-time, and listed under
+  // one-time services instead (MyServicesList).
+  const active = mine ? [...new Set([...(mine.plans ?? []).map((plan) => plan.name), ...mine.services.map((entry) => entry.service.title), ...(mine.unpriced ?? [])])] : [];
 
   // The team added, changed or finished a service: shown at once (and every minute, if the live
   // connection is down).
@@ -154,7 +164,7 @@ const Services = ({ mine, mineError }: { mine?: MyServicesData; mineError?: stri
     Boolean(item.match?.test(name)) || normalize(name) === normalize(item.name) || (shortNameOf(name) !== name && normalize(shortNameOf(name)) === normalize(shortNameOf(item.name)));
   const isActive = (item: CatalogItem) => active.some((name) => sameAs(item, name));
   const stateOf = (item: CatalogItem): CardState =>
-    isActive(item) ? "active" : requests.includes(item.name) ? "requested" : sending === item.name ? "sending" : "idle";
+    isActive(item) ? "active" : requests.includes(item.name) ? "requested" : addedRequests.includes(item.name) ? "added" : sending === item.name ? "sending" : "idle";
 
   const request = async (key: string, service: string | null, text?: string) => {
     setSending(key);
@@ -170,7 +180,7 @@ const Services = ({ mine, mineError }: { mine?: MyServicesData; mineError?: stri
       return false;
     }
     const open = result.data?.requests.filter((entry) => entry.status === "open").map((entry) => entry.name);
-    setRequests((previous) => open ?? (previous.includes(key) ? previous : [...previous, key]));
+    setSent((previous) => [...new Set([...previous, ...(open ?? [key])])]);
     return true;
   };
 
@@ -196,10 +206,10 @@ const Services = ({ mine, mineError }: { mine?: MyServicesData; mineError?: stri
           <div className={`${cardClass} flex items-start gap-3.5 px-5 py-4.5 md:col-span-2 xl:col-span-1`}>
             <StatIcon icon={Layers} color="#3b5bab" background="#e3e9f6" />
             <div className="min-w-0">
-              <div className={statLabel}>Active services · {running.length}</div>
-              {running.length ? (
+              <div className={statLabel}>Active services · {active.length}</div>
+              {active.length ? (
                 <div className="mt-2 flex flex-wrap gap-1.5">
-                  {running.map((name) => {
+                  {active.map((name) => {
                     const group = groupOfName(name);
                     return (
                       <span
