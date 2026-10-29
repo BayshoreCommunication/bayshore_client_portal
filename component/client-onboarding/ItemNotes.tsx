@@ -16,20 +16,22 @@ type Props = {
   step: string;
   item: { id: string; label: string };
   comments: OnboardingComment[];
+  // The team asked them to update it, and that is still to do (backend: onboarding.updateAsked).
+  asked: boolean;
   // The team has approved the item since: the notes stay, but no longer ask for anything.
   approved: boolean;
   name: string;
   onPosted: (comment: OnboardingComment) => void;
 };
 
-const ItemNotes = ({ step, item, comments, approved, name, onPosted }: Props) => {
+const ItemNotes = ({ step, item, comments, asked, approved, name, onPosted }: Props) => {
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
   const [done, setDone] = useState(false);
   const [error, setError] = useState<string | null>(null);
   if (!comments.some((comment) => comment.side === "team")) return null;
 
-  const waiting = !approved && comments[comments.length - 1]?.side === "team";
+  const waiting = asked && !approved;
   const ready = draft.trim() !== "" && !sending;
 
   const post = async () => {
@@ -66,8 +68,8 @@ const ItemNotes = ({ step, item, comments, approved, name, onPosted }: Props) =>
           {waiting ? <MessageSquareWarning size={15} strokeWidth={2} /> : <CheckCircle2 size={15} strokeWidth={2} />}
         </span>
         <div className="min-w-0 flex-1">
-          <div className="text-[13px] font-semibold text-[#0b0c24]">{waiting ? "BayShore asked you to update this" : approved ? "Sorted. Thank you!" : "Notes from BayShore"}</div>
-          {waiting ? <div className="text-[11.5px] text-[#92400e]">Make the change below, then reply here to let us know.</div> : null}
+          <div className="text-[13px] font-semibold text-[#0b0c24]">{waiting ? "BayShore asked you to update this" : approved ? "Sorted. Thank you!" : "Submitted. We'll check it."}</div>
+          {waiting ? <div className="text-[11.5px] text-[#92400e]">Make the change below and save, or reply here to let us know.</div> : null}
         </div>
       </div>
 

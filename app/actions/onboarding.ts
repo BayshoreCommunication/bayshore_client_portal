@@ -130,7 +130,7 @@ export interface Onboarding {
   phone?: string;
   // `notNeeded` is the team's: the steps ("step:google") and items ("social.facebook") this
   // client isn't asked. `approved` is the items their account manager has approved.
-  onboarding?: OnboardingAnswers & { status: OnboardingStatus; submittedAt?: string; notNeeded?: string[]; approved?: string[] };
+  onboarding?: OnboardingAnswers & { status: OnboardingStatus; submittedAt?: string; notNeeded?: string[]; approved?: string[]; updateAsked?: string[] };
 }
 
 // Starting needs to know who is answering; the email can't be changed afterwards.

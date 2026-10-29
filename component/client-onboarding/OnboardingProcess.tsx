@@ -1705,7 +1705,19 @@ const withoutTypedPasswords = (answers: Answers): Answers => {
 //
 // `mine` is for a client who is signed in: `initial` is then their own client record — so the
 // form opens already filled in with what we hold on them — and their answers are saved on it.
-const OnboardingProcess = ({ initial = null, mine = false, comments: initialComments }: { initial?: Onboarding | null; mine?: boolean; comments?: OnboardingComment[] }) => {
+// `focus` opens the form at a step, and an item of it (?step=social&item=social.facebook): where
+// a notification about a comment on it leads.
+const OnboardingProcess = ({
+  initial = null,
+  mine = false,
+  comments: initialComments,
+  focus,
+}: {
+  initial?: Onboarding | null;
+  mine?: boolean;
+  comments?: OnboardingComment[];
+  focus?: { step?: string; item?: string };
+}) => {
   const [seed] = useState(() => (initial ? fromBackend(initial) : null));
   const [answers, setAnswers] = useState<Answers>(seed?.answers ?? BLANK_ANSWERS);
   const [competitors, setCompetitors] = useState<Competitor[]>(seed?.competitors ?? BLANK_COMPETITORS);
@@ -1774,6 +1786,16 @@ const OnboardingProcess = ({ initial = null, mine = false, comments: initialComm
 
   // What the account manager has approved (company-portal: OnboardingControls), by item.
   const [approved, setApproved] = useState(() => new Set(initial?.onboarding?.approved ?? []));
+  // What the team asked the client to update (a comment on the item): to do again until they
+  // change it, reply on it or hand the form in again (backend: utils/onboardingUpdates.ts).
+  const [updateAsked, setUpdateAsked] = useState(() => new Set(initial?.onboarding?.updateAsked ?? []));
+  // Where the team's ticks and asks stand now, from the record.
+  const reloadStanding = () =>
+    void getMyOnboardingAction().then((result) => {
+      if (!result.ok || !result.data) return;
+      setApproved(new Set(result.data.onboarding?.approved ?? []));
+      setUpdateAsked(new Set(result.data.onboarding?.updateAsked ?? []));
+    });
   // The comments on the form — the step's box (StepComments) and each item's notes (ItemNotes) —
   // live from either side (backend → onboarding:comment), and reloaded now and then in case the
   // live connection is down. None when they couldn't be loaded.
@@ -1781,22 +1803,26 @@ const OnboardingProcess = ({ initial = null, mine = false, comments: initialComm
   const putComment = (comment: OnboardingComment) =>
     setComments((now) => (now ? (now.some((entry) => entry._id === comment._id) ? now.map((entry) => (entry._id === comment._id ? comment : entry)) : [...now, comment]) : now));
   useRealtime<OnboardingComment>("onboarding:comment", (comment) => {
-    if (mine) putComment(comment);
+    if (!mine) return;
+    putComment(comment);
+    // One on an item asks for it again, or answers that.
+    if (comment.item) reloadStanding();
   });
   useRefreshing(() => {
-    if (mine && comments) void listMyOnboardingCommentsAction().then((result) => result.ok && result.data && setComments(result.data));
+    if (!mine) return;
+    if (comments) void listMyOnboardingCommentsAction().then((result) => result.ok && result.data && setComments(result.data));
+    reloadStanding();
   });
   // The team approved more (backend → notifications:new): show it at once.
   useRealtime<{ type?: string }>("notifications:new", (news) => {
-    if (!mine || news?.type !== "onboarding_approved") return;
-    void getMyOnboardingAction().then((result) => {
-      if (result.ok && result.data) setApproved(new Set(result.data.onboarding?.approved ?? []));
-    });
+    if (mine && news?.type === "onboarding_approved") reloadStanding();
   });
   // Where a step stands: approved once every item on it is; todo while one still has no answer;
   // otherwise submitted, and ours to check.
   const standingOf = (id: StepId): StepStanding => {
     const own = ownItems(id);
+    // An item the team asked them to update is to do again.
+    if (own.some((item) => updateAsked.has(controlIdOf(item)))) return "todo";
     if (own.length && own.every((item) => approved.has(controlIdOf(item)))) return "approved";
     const unanswered = own.some((item) => {
       const status = statusOf(item);
@@ -1862,6 +1888,8 @@ const OnboardingProcess = ({ initial = null, mine = false, comments: initialComm
     setStarted(true);
     setAnswers(withoutTypedPasswords);
     lastSaved.current = snapshotOf(withoutTypedPasswords(answers));
+    // What they changed answers the team's asks on it.
+    if (mine && result.data) setUpdateAsked(new Set(result.data.onboarding?.updateAsked ?? []));
     return true;
   };
 
@@ -1885,6 +1913,27 @@ const OnboardingProcess = ({ initial = null, mine = false, comments: initialComm
     window.scrollTo({ top: 0, behavior: "smooth" });
     return true;
   };
+
+  // Opens the step (and item) a comment is on — from a notification's link, or the comments box —
+  // and brings the item into view.
+  const focusOn = (stepId: string, controlId?: string) => {
+    const target = steps.findIndex((entry) => entry.id === stepId);
+    if (target < 0) return;
+    const own = ownItems(steps[target].id);
+    const formItem = controlId ? own.find((entry) => controlIdOf(entry) === controlId) : undefined;
+    void go(target, formItem).then((moved) => {
+      if (!moved || !formItem) return;
+      const card = formItem === "cms" && own.includes("hosting") ? "hosting" : formItem;
+      setTimeout(() => document.getElementById(`onboarding-${card}`)?.scrollIntoView({ behavior: "smooth", block: "start" }), 350);
+    });
+  };
+  const focusLatest = useRef(focusOn);
+  useEffect(() => {
+    focusLatest.current = focusOn;
+  });
+  useEffect(() => {
+    if (focus?.step) focusLatest.current(focus.step, focus.item);
+  }, [focus?.step, focus?.item]);
 
   const saveForLater = async () => {
     if (await save("later")) say(mine ? "Saved. Come back any time to finish." : "Saved. Come back on this browser any time to finish.");
@@ -2045,9 +2094,9 @@ const OnboardingProcess = ({ initial = null, mine = false, comments: initialComm
                     const noteId = controlIdOf(item);
                     const notes = mine && comments ? comments.filter((comment) => comment.item === noteId || (item === "hosting" && comment.item === "cms")) : [];
                     const noteApproved = approved.has(noteId);
-                    const updateAsked = !noteApproved && notes[notes.length - 1]?.side === "team";
+                    const askedHere = updateAsked.has(noteId) || (item === "hosting" && updateAsked.has("cms"));
                     const notesBox = notes.length ? (
-                      <ItemNotes step={step.id} item={{ id: noteId, label: ITEM_TITLES[item] }} comments={notes} approved={noteApproved} name={text(answers, "contact.name")} onPosted={putComment} />
+                      <ItemNotes step={step.id} item={{ id: noteId, label: ITEM_TITLES[item] }} comments={notes} asked={askedHere} approved={noteApproved} name={text(answers, "contact.name")} onPosted={putComment} />
                     ) : null;
                     return (
                       <div
@@ -2073,7 +2122,7 @@ const OnboardingProcess = ({ initial = null, mine = false, comments: initialComm
                               {ITEM_TITLES[item]}
                             </span>
                             <span className="flex items-center gap-1.5">
-                              {updateAsked ? <span className="rounded-full bg-[#fef3c7] px-2.5 py-0.5 text-[11px] font-semibold whitespace-nowrap text-[#92400e]">Update asked</span> : null}
+                              {askedHere ? <span className="rounded-full bg-[#fef3c7] px-2.5 py-0.5 text-[11px] font-semibold whitespace-nowrap text-[#92400e]">Update asked</span> : null}
                               {status ? <Pill tone={status.tone}>{status.label}</Pill> : null}
                             </span>
                           </button>
@@ -2081,7 +2130,7 @@ const OnboardingProcess = ({ initial = null, mine = false, comments: initialComm
                           <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
                             <h3 className="text-[14px] font-semibold text-[#0b0c24]">{ITEM_TITLES[item]}</h3>
                             <span className="flex items-center gap-1.5">
-                              {updateAsked ? <span className="rounded-full bg-[#fef3c7] px-2.5 py-0.5 text-[11px] font-semibold whitespace-nowrap text-[#92400e]">Update asked</span> : null}
+                              {askedHere ? <span className="rounded-full bg-[#fef3c7] px-2.5 py-0.5 text-[11px] font-semibold whitespace-nowrap text-[#92400e]">Update asked</span> : null}
                               {status ? <Pill tone={status.tone}>{status.label}</Pill> : null}
                             </span>
                           </div>
@@ -2268,7 +2317,7 @@ const OnboardingProcess = ({ initial = null, mine = false, comments: initialComm
             </AnimatePresence>
 
             {/* Comments are on the client's own record: only for a client who is signed in. */}
-            {mine && comments ? <StepComments stepId={step.id} stepTitle={step.title} name={text(answers, "contact.name")} all={comments} onPosted={putComment} /> : null}
+            {mine && comments ? <StepComments stepId={step.id} stepTitle={step.title} name={text(answers, "contact.name")} all={comments} onPosted={putComment} onOpenItem={(item) => focusOn(step.id, item)} /> : null}
           </aside>
         </div>
 

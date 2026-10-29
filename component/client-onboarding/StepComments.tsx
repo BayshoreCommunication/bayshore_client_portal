@@ -106,7 +106,22 @@ const PickedFile = ({ file, onRemove }: { file: File; onRemove: () => void }) =>
 
 // `all` is every comment on the form, kept by the form (OnboardingProcess) — live, and shared with
 // the notes on each item (ItemNotes).
-const StepComments = ({ stepId, stepTitle, name, all, onPosted }: { stepId: string; stepTitle: string; name: string; all: OnboardingComment[]; onPosted: (comment: OnboardingComment) => void }) => {
+const StepComments = ({
+  stepId,
+  stepTitle,
+  name,
+  all,
+  onPosted,
+  onOpenItem,
+}: {
+  stepId: string;
+  stepTitle: string;
+  name: string;
+  all: OnboardingComment[];
+  onPosted: (comment: OnboardingComment) => void;
+  // Opens the item a comment is about, on the form.
+  onOpenItem?: (item: string) => void;
+}) => {
   const [draft, setDraft] = useState("");
   const [files, setFiles] = useState<File[]>([]);
   const [sending, setSending] = useState(false);
@@ -185,7 +200,15 @@ const StepComments = ({ stepId, stepTitle, name, all, onPosted }: { stepId: stri
                       ) : null}
                       <span className="text-[11px] text-[#9ca3af]">{timeOf(comment.createdAt)}</span>
                     </div>
-                    {comment.itemLabel ? <div className="mt-0.5 text-[10.5px] font-medium text-[#6b7280]">About {comment.itemLabel}</div> : null}
+                    {comment.item && comment.itemLabel ? (
+                      <button
+                        type="button"
+                        onClick={() => onOpenItem?.(comment.item as string)}
+                        className="mt-0.5 cursor-pointer text-[10.5px] font-semibold text-[#2f5fd8] hover:underline"
+                      >
+                        About {comment.itemLabel} →
+                      </button>
+                    ) : null}
                     {comment.text ? (
                       <p
                         className={`mt-0.5 rounded-lg rounded-tl-sm px-3 py-2 text-[12.5px] leading-normal break-words whitespace-pre-wrap text-[#1f2530] ${comment.side === "team" ? "bg-[#eef3fd]" : "bg-[#f5f6f8]"}`}

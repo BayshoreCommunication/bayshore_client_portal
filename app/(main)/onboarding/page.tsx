@@ -9,9 +9,11 @@ export const metadata: Metadata = { title: "Client onboarding – BayShore" };
 // other, inside its sidebar and top bar. It opens filled in with what we hold on them (their
 // name, company, email, phone and any answers given before), and saves onto their own record.
 // Over it, the way to book the onboarding call; `?book=1` (the onboarding emails' link) opens it.
-const OnboardingPage = async ({ searchParams }: { searchParams: Promise<{ book?: string | string[] }> }) => {
+const OnboardingPage = async ({ searchParams }: { searchParams: Promise<{ book?: string | string[]; step?: string | string[]; item?: string | string[] }> }) => {
   const [mine, comments] = await Promise.all([getMyOnboardingAction(), listMyOnboardingCommentsAction()]);
-  const { book } = await searchParams;
+  const { book, step, item } = await searchParams;
+  // A notification about a comment opens the form at its step and item (?step=social&item=social.facebook).
+  const one = (value?: string | string[]) => (typeof value === "string" ? value : undefined);
 
   if (!mine.ok || !mine.data) {
     return (
@@ -29,7 +31,7 @@ const OnboardingPage = async ({ searchParams }: { searchParams: Promise<{ book?:
     <>
       <KickoffCallCard booked={onboarding?.kickoffCall?.booked === true} formDone={onboarding?.status === "submitted"} open={book === "1"} />
       {/* Comments that couldn't be loaded leave the comments box off, rather than showing none. */}
-      <OnboardingProcess initial={mine.data} mine comments={comments.ok ? comments.data : undefined} />
+      <OnboardingProcess initial={mine.data} mine comments={comments.ok ? comments.data : undefined} focus={{ step: one(step), item: one(item) }} />
     </>
   );
 };
