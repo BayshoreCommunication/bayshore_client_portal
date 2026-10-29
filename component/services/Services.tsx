@@ -1,7 +1,10 @@
 "use client";
 
 import { useState, type CSSProperties } from "react";
-import { Check, CircleDollarSign, CirclePlus, Layers, Lightbulb, LoaderCircle, Plus, Receipt, Send, Sparkles, SquareCheckBig, TrendingUp } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { Check, CircleDollarSign, CirclePlus, Layers, Lightbulb, LoaderCircle, Plus, Send, SquareCheckBig, TrendingUp } from "lucide-react";
+import { useRealtime, useRefreshing } from "@/lib/realtime";
+import MyServicesList from "./MyServicesList";
 import { requestServiceAction, type MyServicesData } from "@/app/actions/service";
 import { inter, poppins } from "@/component/shared/fonts";
 import { SERVICE_GROUPS, groupOfName, shortNameOf, type CatalogGroup, type CatalogItem } from "./serviceCatalog";
@@ -129,6 +132,18 @@ const Services = ({ mine, mineError }: { mine?: MyServicesData; mineError?: stri
   // Every service on the client's account, by name — but for one their team made for them (a
   // request taken on as a custom service): its card stays as any other.
   const active = mine ? [...(mine.plans ?? []).filter((plan) => !plan.custom).map((plan) => plan.name), ...mine.services.map((entry) => entry.service.title), ...(mine.unpriced ?? [])] : [];
+  // Everything running for them, made-for-them and one-time ones too: the chips at the top.
+  const running = mine
+    ? [...new Set([...mine.services.map((entry) => entry.service.title), ...(mine.plans ?? []).map((plan) => plan.name), ...(mine.unpriced ?? []), ...(mine.oneTime ?? []).map((item) => item.name)])]
+    : [];
+
+  // The team added, changed or finished a service: shown at once (and every minute, if the live
+  // connection is down).
+  const router = useRouter();
+  useRealtime<{ type?: string }>("notifications:new", (news) => {
+    if (news?.type === "services_updated") router.refresh();
+  });
+  useRefreshing(() => router.refresh(), 60_000);
   const monthlyTotal = (mine?.monthlyTotal ?? 0) + (mine?.planTotal ?? 0);
   const oneTime = mine?.oneTime ?? [];
   const oneTimeTotal = mine?.oneTimeTotal ?? oneTime.reduce((sum, item) => sum + item.price, 0);
@@ -181,10 +196,10 @@ const Services = ({ mine, mineError }: { mine?: MyServicesData; mineError?: stri
           <div className={`${cardClass} flex items-start gap-3.5 px-5 py-4.5 md:col-span-2 xl:col-span-1`}>
             <StatIcon icon={Layers} color="#3b5bab" background="#e3e9f6" />
             <div className="min-w-0">
-              <div className={statLabel}>Active services · {active.length}</div>
-              {active.length ? (
+              <div className={statLabel}>Active services · {running.length}</div>
+              {running.length ? (
                 <div className="mt-2 flex flex-wrap gap-1.5">
-                  {active.map((name) => {
+                  {running.map((name) => {
                     const group = groupOfName(name);
                     return (
                       <span
@@ -212,7 +227,7 @@ const Services = ({ mine, mineError }: { mine?: MyServicesData; mineError?: stri
                 {dollars(monthlyTotal)}
                 <span className="ml-0.5 text-[14px] font-medium text-[#6b7280]">/mo</span>
               </div>
-              <div className="text-[12.5px] text-[#6b7280]">For everything included</div>
+              <div className="text-[12.5px] text-[#6b7280]">{oneTimeTotal ? `+ ${dollars(oneTimeTotal)} one-time` : "For everything included"}</div>
             </div>
           </div>
           <div className={`${cardClass} flex items-center gap-3.5 px-5 py-4.5`}>
@@ -224,47 +239,15 @@ const Services = ({ mine, mineError }: { mine?: MyServicesData; mineError?: stri
             </div>
           </div>
 
-          {/* Paid once, not each month: only when there is something. */}
-          {oneTime.length ? (
-            <>
-              <div className={`${cardClass} flex items-start gap-3.5 px-5 py-4.5 md:col-span-2 xl:col-span-1`}>
-                <StatIcon icon={Sparkles} color="#c2551b" background="#fdece0" />
-                <div className="min-w-0">
-                  <div className={statLabel}>One-time services · {oneTime.length}</div>
-                  <div className="mt-2 flex flex-wrap gap-1.5">
-                    {oneTime.map((item) => {
-                      const group = groupOfName(item.name);
-                      return (
-                        <span
-                          key={item.name}
-                          style={tint(group)}
-                          className="inline-flex items-center gap-1.5 rounded-full bg-(--soft) px-2.5 py-1 text-[12.5px] font-medium text-(--c)"
-                        >
-                          <span className="size-1.5 rounded-full bg-(--c)" />
-                          {item.name}
-                          {item.detail ? <span className="opacity-70">· {item.detail}</span> : null}
-                        </span>
-                      );
-                    })}
-                  </div>
-                </div>
-              </div>
-              <div className={`${cardClass} flex items-center gap-3.5 px-5 py-4.5`}>
-                <StatIcon icon={Receipt} color="#7c3aed" background="#efe6fd" />
-                <div>
-                  <div className={statLabel}>One-time payment</div>
-                  <div className={`${poppins.className} text-[24px] leading-tight font-semibold`}>{dollars(oneTimeTotal)}</div>
-                  <div className="text-[12.5px] text-[#6b7280]">Paid once, not monthly</div>
-                </div>
-              </div>
-            </>
-          ) : null}
         </div>
       ) : (
         <div role="alert" className={`${errorBannerClass} mt-5.5`}>
           {mineError ?? "Could not load your services."} Please refresh the page to try again.
         </div>
       )}
+
+      {/* Each service, monthly and one-time, and what was finished for them. */}
+      {mine ? <MyServicesList mine={mine} /> : null}
 
       {/* Everything else on offer. */}
       <section className="relative mt-7 overflow-hidden rounded-[20px] bg-[radial-gradient(circle_at_85%_20%,rgba(232,150,58,0.35),transparent_45%),linear-gradient(120deg,#0f1729_0%,#1d2b4d_100%)] px-8 py-7.5 text-white max-md:px-5 max-md:py-6">

@@ -53,6 +53,18 @@ export interface MyServicePlan {
   included: string[];
   // Made by their team for them (not one from the catalog).
   custom?: boolean;
+  // When it was put on their account.
+  addedAt?: string;
+}
+
+// A service the team finished for the client: no longer billed, kept to look back on.
+export interface MyServiceHistoryItem {
+  name: string;
+  billing: "monthly" | "one_time";
+  price: number;
+  included?: string[];
+  addedAt?: string;
+  doneAt?: string;
 }
 
 export interface MyServicesData {
@@ -65,10 +77,12 @@ export interface MyServicesData {
   planTotal?: number;
   unpriced?: string[];
   // Paid once, not each month (a logo designed for them), and what those come to.
-  oneTime?: { name: string; price: number; detail?: string }[];
+  oneTime?: { name: string; price: number; detail?: string; included?: string[]; addedAt?: string }[];
   // What the client asked for from the Services page.
   requests?: ServiceRequest[];
   oneTimeTotal?: number;
+  // Finished services, newest first.
+  history?: MyServiceHistoryItem[];
 }
 
 // A service to add: its id and the ids of the sub-services wanted.

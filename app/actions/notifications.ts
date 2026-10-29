@@ -26,7 +26,8 @@ export type NotificationType =
   // A comment or reply on the onboarding form.
   | "onboarding_comment"
   // The team approved items on the onboarding form.
-  | "onboarding_approved";
+  | "onboarding_approved"
+  | "services_updated";
 
 // Named NotificationItem because `Notification` is already the browser's own (desktop alerts).
 export interface NotificationItem {
