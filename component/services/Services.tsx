@@ -2,15 +2,13 @@
 
 import { useState, type CSSProperties } from "react";
 import { useRouter } from "next/navigation";
-import { Check, CircleDollarSign, CirclePlus, Layers, Lightbulb, LoaderCircle, Plus, Send, SquareCheckBig, TrendingUp } from "lucide-react";
+import { Check, CirclePlus, Lightbulb, LoaderCircle, Plus, Send, TrendingUp } from "lucide-react";
 import { useRealtime, useRefreshing } from "@/lib/realtime";
 import MyServicesList from "./MyServicesList";
 import { requestServiceAction, type MyServicesData } from "@/app/actions/service";
 import { inter, poppins } from "@/component/shared/fonts";
-import { SERVICE_GROUPS, groupOfName, shortNameOf, type CatalogGroup, type CatalogItem } from "./serviceCatalog";
-import { dollars } from "./serviceUi";
+import { SERVICE_GROUPS, shortNameOf, type CatalogGroup, type CatalogItem } from "./serviceCatalog";
 
-const cardClass = "rounded-2xl border border-[#e6e8eb] bg-white";
 const errorBannerClass = "rounded-xl border border-[#f5c2c2] bg-[#fdecec] px-4 py-3 text-[12.5px] font-medium text-[#b42318]";
 
 // What the client has asked for from this page is kept on their record (backend: POST
@@ -22,16 +20,6 @@ const SOMETHING_ELSE = "Something else";
 const tint = (group: CatalogGroup) => ({ "--c": group.color, "--soft": group.soft }) as CSSProperties;
 
 const normalize = (name: string) => name.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
-
-// ── Top row ──────────────────────────────────────────────────────────────────
-
-const StatIcon = ({ icon: Icon, color, background }: { icon: typeof Check; color: string; background: string }) => (
-  <span className="grid size-11 shrink-0 place-items-center rounded-xl" style={{ color, background }}>
-    <Icon className="size-5.25" strokeWidth={2} />
-  </span>
-);
-
-const statLabel = "text-[12px] font-semibold tracking-[0.05em] text-[#6b7280] uppercase";
 
 // ── One service on offer ─────────────────────────────────────────────────────
 
@@ -121,8 +109,8 @@ const ServiceCard = ({ item, group, state, error, onRequest }: { item: CatalogIt
 
 // ── The Services page ────────────────────────────────────────────────────────
 
-// At the top, what the client has now: their active services, what they pay a month, and how
-// many services they've asked for — and, under it, anything they pay for once (a logo designed). Under it, everything BayShore offers in groups, to read and
+// At the top, what the client has now (MyServicesList): each service, monthly and one-time, with
+// the totals and what was finished. Under it, everything BayShore offers in groups, to read and
 // request; a request goes to their account manager as a message, who comes back with a plan and
 // a quote. `mine` is missing when it couldn't be loaded; `mineError` says why.
 const Services = ({ mine, mineError }: { mine?: MyServicesData; mineError?: string }) => {
@@ -154,9 +142,6 @@ const Services = ({ mine, mineError }: { mine?: MyServicesData; mineError?: stri
     if (news?.type === "services_updated") router.refresh();
   });
   useRefreshing(() => router.refresh(), 60_000);
-  const monthlyTotal = (mine?.monthlyTotal ?? 0) + (mine?.planTotal ?? 0);
-  const oneTime = mine?.oneTime ?? [];
-  const oneTimeTotal = mine?.oneTimeTotal ?? oneTime.reduce((sum, item) => sum + item.price, 0);
   const total = SERVICE_GROUPS.reduce((sum, group) => sum + group.items.length, 0);
 
   // A service of theirs by another name is still this one ("Search Engine Optimization (SEO)" is SEO).
@@ -200,64 +185,15 @@ const Services = ({ mine, mineError }: { mine?: MyServicesData; mineError?: stri
       <h1 className={`${poppins.className} text-[30px] leading-tight font-bold`}>Services</h1>
       <p className="mt-1 text-[14.5px] text-[#4b5563]">What we&apos;re doing for you today, and everything else we can help your business with.</p>
 
-      {/* What the client has now. */}
+      {/* What the client has now: each service, monthly and one-time, and what was finished. */}
       {mine ? (
-        <div className="mt-5.5 grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-[1.7fr_1fr_1fr]">
-          <div className={`${cardClass} flex items-start gap-3.5 px-5 py-4.5 md:col-span-2 xl:col-span-1`}>
-            <StatIcon icon={Layers} color="#3b5bab" background="#e3e9f6" />
-            <div className="min-w-0">
-              <div className={statLabel}>Active services · {active.length}</div>
-              {active.length ? (
-                <div className="mt-2 flex flex-wrap gap-1.5">
-                  {active.map((name) => {
-                    const group = groupOfName(name);
-                    return (
-                      <span
-                        key={name}
-                        title={name}
-                        style={tint(group)}
-                        className="inline-flex items-center gap-1.5 rounded-full bg-(--soft) px-2.5 py-1 text-[12.5px] font-medium text-(--c)"
-                      >
-                        <span className="size-1.5 rounded-full bg-(--c)" />
-                        {shortNameOf(name)}
-                      </span>
-                    );
-                  })}
-                </div>
-              ) : (
-                <p className="mt-1.5 text-[12.5px] text-[#6b7280]">Your services will show here once your team sets them up.</p>
-              )}
-            </div>
-          </div>
-          <div className={`${cardClass} flex items-center gap-3.5 px-5 py-4.5`}>
-            <StatIcon icon={CircleDollarSign} color="#2f855a" background="#e4f4ea" />
-            <div>
-              <div className={statLabel}>Monthly payment</div>
-              <div className={`${poppins.className} text-[24px] leading-tight font-semibold`}>
-                {dollars(monthlyTotal)}
-                <span className="ml-0.5 text-[14px] font-medium text-[#6b7280]">/mo</span>
-              </div>
-              <div className="text-[12.5px] text-[#6b7280]">{oneTimeTotal ? `+ ${dollars(oneTimeTotal)} one-time` : "For everything included"}</div>
-            </div>
-          </div>
-          <div className={`${cardClass} flex items-center gap-3.5 px-5 py-4.5`}>
-            <StatIcon icon={SquareCheckBig} color="#b7791f" background="#fbefd9" />
-            <div>
-              <div className={statLabel}>Your requests</div>
-              <div className={`${poppins.className} text-[24px] leading-tight font-semibold`}>{requests.length}</div>
-              <div className="text-[12.5px] text-[#6b7280]">Waiting on your account manager</div>
-            </div>
-          </div>
-
-        </div>
+        <MyServicesList mine={mine} />
       ) : (
         <div role="alert" className={`${errorBannerClass} mt-5.5`}>
           {mineError ?? "Could not load your services."} Please refresh the page to try again.
         </div>
       )}
 
-      {/* Each service, monthly and one-time, and what was finished for them. */}
-      {mine ? <MyServicesList mine={mine} /> : null}
 
       {/* Everything else on offer. */}
       <section className="relative mt-7 overflow-hidden rounded-[20px] bg-[radial-gradient(circle_at_85%_20%,rgba(232,150,58,0.35),transparent_45%),linear-gradient(120deg,#0f1729_0%,#1d2b4d_100%)] px-8 py-7.5 text-white max-md:px-5 max-md:py-6">

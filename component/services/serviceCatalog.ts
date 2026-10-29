@@ -19,9 +19,11 @@ import {
   Printer,
   Repeat2,
   SearchCheck,
+  Server,
   Shapes,
   Share2,
   ShoppingCart,
+  Smartphone,
   Sparkles,
   SquarePlay,
   Star,
@@ -63,67 +65,6 @@ export type CatalogGroup = {
 
 export const SERVICE_GROUPS: CatalogGroup[] = [
   {
-    id: "main",
-    name: "Main Services",
-    icon: Star,
-    color: "#3b5bab",
-    soft: "#e3e9f6",
-    blurb: "The core services most of our clients run with us every month.",
-    items: [
-      {
-        name: "Website maintenance",
-        match: /website (maintenance|care)|hosting|site care/i,
-        icon: MonitorCog,
-        popular: true,
-        description: "We keep your website updated, secure and backed up, and make small edits for you.",
-        includes: ["Plugin & core updates", "Security & uptime monitoring", "Weekly backups & small edits"],
-        helps: "A fast, safe website that never breaks when customers need it.",
-      },
-      {
-        name: "Google Business Profile management",
-        match: /google (business|maps)|\bgmb\b|\bgbp\b/i,
-        icon: MapPin,
-        popular: true,
-        description: "We keep your Google listing accurate and active so you show up in the local map pack.",
-        includes: ["Weekly posts & photo updates", "Review responses and Q&A", "Monthly insights report"],
-        helps: "More calls, direction requests and walk-ins from nearby customers.",
-      },
-      {
-        name: "SEO",
-        match: /\bseo\b|search engine optimi/i,
-        icon: SearchCheck,
-        popular: true,
-        description: "We improve your website and content so you rank higher on Google for the searches that bring in customers.",
-        includes: ["Keyword research & on-page fixes", "Blog posts and service pages", "Monthly ranking report"],
-        helps: "More website visitors who are ready to buy, month after month.",
-      },
-      {
-        name: "Social media management",
-        match: /social media/i,
-        icon: Share2,
-        description: "We plan, design and post your content, and reply to comments and messages.",
-        includes: ["Content calendar & graphic design", "Posts and reels each month", "Comment & DM replies"],
-        helps: "A steady, professional presence that keeps you top of mind.",
-      },
-      {
-        name: "Video production",
-        match: /video production|videograph/i,
-        icon: Clapperboard,
-        description: "We film and edit videos for your business, with short cuts ready for social.",
-        includes: ["Filming on site or remote", "Editing, color & captions", "Short-form cuts for social"],
-        helps: "Videos that show customers who you are and build trust fast.",
-      },
-      {
-        name: "Dedicated account manager",
-        match: /account manager/i,
-        icon: Users,
-        description: "One person who knows your business, plans with you and gets things done.",
-        includes: ["Single point of contact", "Monthly strategy call", "Priority support"],
-        helps: "Less back and forth, and a clear plan for what comes next.",
-      },
-    ],
-  },
-  {
     id: "org",
     name: "Organic Growth",
     icon: TrendingUp,
@@ -132,12 +73,30 @@ export const SERVICE_GROUPS: CatalogGroup[] = [
     blurb: "Get found by customers already searching for what you sell. No ad spend required.",
     items: [
       {
+        name: "Search Engine Optimization (SEO)",
+        match: /\bseo\b|search engine optimi/i,
+        icon: SearchCheck,
+        popular: true,
+        description: "We improve your website and content so you show up higher on Google for the searches that bring in customers.",
+        includes: ["Keyword research & rank tracking", "On-page & technical fixes", "Monthly progress reports"],
+        helps: "More website visitors who are ready to buy, month after month.",
+      },
+      {
         name: "Answer Engine Optimization (AEO)",
         icon: MessageSquareText,
         isNew: true,
         description: "We shape your content so AI assistants like ChatGPT, Google AI Overviews and Perplexity recommend your business when people ask.",
         includes: ["Answer-ready FAQ & service content", "Schema / structured data markup", "AI search visibility tracking"],
         helps: "Gets you named in AI answers, the fastest-growing way people find businesses.",
+      },
+      {
+        name: "Google Maps & Business Profile",
+        match: /google (business|maps)|\bgmb\b|\bgbp\b/i,
+        icon: MapPin,
+        popular: true,
+        description: "We keep your Google listing accurate, active and optimized so you show up in the local “map pack.”",
+        includes: ["Weekly posts & photo updates", "Q&A and listing management", "Map ranking snapshots"],
+        helps: "More calls, direction requests and walk-ins from nearby customers.",
       },
       {
         name: "Reviews & Reputation",
@@ -177,6 +136,15 @@ export const SERVICE_GROUPS: CatalogGroup[] = [
     soft: "#fde7ef",
     blurb: "Show up consistently where your customers spend their time, and build a real community.",
     items: [
+      {
+        name: "Social Media Management",
+        match: /social media/i,
+        icon: Smartphone,
+        popular: true,
+        description: "We plan, create and post content on Facebook, Instagram and more, so you don't have to.",
+        includes: ["Monthly content calendar", "Posts designed & scheduled", "Performance insights"],
+        helps: "Keeps your brand visible and top-of-mind every week.",
+      },
       {
         name: "Community Management",
         icon: Users,
@@ -280,6 +248,14 @@ export const SERVICE_GROUPS: CatalogGroup[] = [
     blurb: "Real, professional content of your team, space and work. No stock photos.",
     items: [
       {
+        name: "Videography",
+        icon: Clapperboard,
+        popular: true,
+        description: "Brand videos, testimonials and promos, professionally shot and edited.",
+        includes: ["Planning & on-site filming", "Professional editing", "Versions for web & social"],
+        helps: "Video builds trust faster than anything else online.",
+      },
+      {
         name: "Photography",
         icon: Camera,
         description: "Professional photos of your team, products, space and work.",
@@ -317,6 +293,14 @@ export const SERVICE_GROUPS: CatalogGroup[] = [
         description: "Modernize an outdated or slow website without losing your search rankings.",
         includes: ["Fresh design & structure", "Speed & mobile upgrades", "Safe content migration"],
         helps: "A better first impression and more inquiries from the same traffic.",
+      },
+      {
+        name: "Website Care & Hosting",
+        match: /hosting|site care/i,
+        icon: Server,
+        description: "Fast, secure hosting with updates, backups and fixes handled for you.",
+        includes: ["Hosting, SSL & monitoring", "Security & plugin updates", "Quick fixes when you need them"],
+        helps: "Peace of mind that your site is always up and safe.",
       },
       {
         name: "E-commerce Store",
@@ -377,10 +361,9 @@ const GROUP_HINTS: [RegExp, string][] = [
   [/photo|video|drone|film/i, "media"],
   [/ai\b|chatbot|software|automation|integration/i, "tech"],
   [/web|site|hosting|e-?commerce|store/i, "web"],
-  [/account manager/i, "main"],
   [/seo|aeo|search|google|maps|review|reputation|content|blog|listing|citation|email/i, "org"],
 ];
-export const groupOfName = (name: string) => SERVICE_GROUPS.find((group) => group.id === GROUP_HINTS.find(([pattern]) => pattern.test(name))?.[1]) ?? SERVICE_GROUPS.find((group) => group.id === "web")!;
+export const groupOfName = (name: string) => SERVICE_GROUPS.find((group) => group.id === GROUP_HINTS.find(([pattern]) => pattern.test(name))?.[1]) ?? SERVICE_GROUPS[5];
 
 // A shorter name: "Search Engine Optimization (SEO)" is SEO, and "Google Business
 // Profile Management" is Google Business Profile.
