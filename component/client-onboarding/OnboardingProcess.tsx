@@ -4,10 +4,11 @@ import { Fragment, useEffect, useRef, useState, type DragEvent, type ReactNode }
 import Link from "next/link";
 import { AnimatePresence, MotionConfig, motion } from "framer-motion";
 import { Building2, Camera, Check, ChevronDown, CircleAlert, Copy, ExternalLink, Globe, Info, LifeBuoy, Loader2, Lock, Mail, MapPin, Palette, Plus, Server, ShieldCheck, Target, Upload, User, Users, X, type LucideIcon } from "lucide-react";
-import { deleteOnboardingAction, startOnboardingAction, updateMyOnboardingAction, updateOnboardingAction, type Onboarding, type OnboardingComment, type OnboardingFile } from "@/app/actions/onboarding";
+import { deleteOnboardingAction, getMyOnboardingAction, startOnboardingAction, updateMyOnboardingAction, updateOnboardingAction, type Onboarding, type OnboardingComment, type OnboardingFile } from "@/app/actions/onboarding";
 import { formatFileSize } from "@/component/projects/projectUi";
 import { poppins } from "@/component/shared/fonts";
 import StepComments from "./StepComments";
+import { useRealtime } from "@/lib/realtime";
 import {
   onBuilder,
   hostOf,
@@ -1771,7 +1772,14 @@ const OnboardingProcess = ({ initial = null, mine = false, comments }: { initial
   const StepIcon = STEP_ICONS[step.id];
 
   // What the account manager has approved (company-portal: OnboardingControls), by item.
-  const [approved] = useState(() => new Set(initial?.onboarding?.approved ?? []));
+  const [approved, setApproved] = useState(() => new Set(initial?.onboarding?.approved ?? []));
+  // The team approved more (backend → notifications:new): show it at once.
+  useRealtime<{ type?: string }>("notifications:new", (news) => {
+    if (!mine || news?.type !== "onboarding_approved") return;
+    void getMyOnboardingAction().then((result) => {
+      if (result.ok && result.data) setApproved(new Set(result.data.onboarding?.approved ?? []));
+    });
+  });
   // Where a step stands: approved once every item on it is; todo while one still has no answer;
   // otherwise submitted, and ours to check.
   const standingOf = (id: StepId): StepStanding => {
