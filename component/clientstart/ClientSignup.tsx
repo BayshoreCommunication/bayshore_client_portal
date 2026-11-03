@@ -2148,7 +2148,6 @@ const ClientSignup = () => {
   const { flow, root, toast, confetti } = useFlow(BLANK);
   const { s } = flow;
   const stepIndex = STEPS.findIndex((step) => step.id === s.screen);
-  const minutesLeft = Math.ceil(STEPS.slice(Math.max(stepIndex, 0)).reduce((sum, step) => sum + step.minutes, 0));
 
   return (
     <MotionConfig reducedMotion="user">
@@ -2159,13 +2158,12 @@ const ClientSignup = () => {
         ) : (
           <>
             {/* The account is made and they are on their way in, so there is no Log in here: just
-                where they are and how long is left. Held to the steps' own width below it. */}
+                which step they are on. Held to the steps' own width below it. */}
             <header className="sticky top-0 z-20 bg-[#16212a] px-4 py-3 text-white">
               <div className={`${widthClass} flex items-center justify-between gap-3`}>
                 {/* Mid-way the link stays put: going back to the first screen would throw the answers away. */}
                 <Logo dark onHome={(event) => event.preventDefault()} />
                 <div className="flex items-center gap-3 text-[13px] text-[#a3b3bc]">
-                  <span className="max-[700px]:hidden">About {minutesLeft} min left</span>
                   <span className="rounded-full bg-white/8 px-3 py-1.25 text-[12px] font-semibold whitespace-nowrap text-white ring-1 ring-white/15 tabular-nums">
                     Step {stepIndex + 1} of 5
                   </span>
