@@ -114,6 +114,32 @@ const refreshBackendTokens = (refreshToken: string): Promise<RefreshOutcome> => 
   return promise;
 };
 
+// A client deleted (or closed, or put on hold) by the team keeps their cookie — and with it an
+// access token that can live for weeks. So now and then the session is checked with the
+// backend: once a minute at most for each access token, shared by every request in that minute.
+// "gone" = the backend refused it (401/403): the account no longer exists or may not sign in.
+// Anything else (down, 5xx, timeout) is no answer, and they stay signed in.
+const ACCOUNT_CHECK_MS = 60 * 1000;
+const accountChecks = new Map<string, { at: number; result: Promise<"ok" | "gone"> }>();
+
+const checkAccount = (accessToken: string): Promise<"ok" | "gone"> => {
+  const now = Date.now();
+  const recent = accountChecks.get(accessToken);
+  if (recent && now - recent.at < ACCOUNT_CHECK_MS) return recent.result;
+
+  for (const [key, check] of accountChecks) if (now - check.at >= ACCOUNT_CHECK_MS) accountChecks.delete(key);
+
+  const result = fetch(`${BACKEND_API_URL}/clients/me/portal`, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+    cache: "no-store",
+    signal: AbortSignal.timeout(5_000),
+  })
+    .then((res): "ok" | "gone" => (res.status === 401 || res.status === 403 ? "gone" : "ok"))
+    .catch((): "ok" => "ok");
+  accountChecks.set(accessToken, { at: now, result });
+  return result;
+};
+
 // Proxy is the ONLY place that talks to the backend to rotate the access
 // token. It's also the only layer of this app that can persist an updated
 // session cookie both forward (into this same request's downstream render,
@@ -174,6 +200,10 @@ export default async function proxy(req: NextRequest) {
     // outcome.status === "error": the backend didn't give a definitive
     // answer (down, restarting, network blip). Don't log the user out over
     // it — just carry on with the existing cookie and try again next request.
+  }
+
+  if (token && isLoggedIn && typeof token.accessToken === "string" && (await checkAccount(token.accessToken)) === "gone") {
+    isLoggedIn = false;
   }
 
   if (!isLoggedIn) {

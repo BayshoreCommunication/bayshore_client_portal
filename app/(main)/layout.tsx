@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import "../globals.css";
 import { auth } from "@/auth";
 import { getMyPortalMenusAction } from "@/app/actions/portal";
+import AccountWatch from "@/component/layout/AccountWatch";
 import PortalGuard from "@/component/layout/PortalGuard";
 import { firstShownPage, isPageShown } from "@/component/layout/portalPages";
 import Sidebar from "@/component/layout/Sidebar";
@@ -36,6 +37,7 @@ const MainLayout = async ({ children }: { children: React.ReactNode }) => {
 
   return (
     <SessionUserProvider user={{ name, initials: initialsFromName(name) }}>
+      <AccountWatch />
       <div className="flex min-h-screen">
         <Sidebar menus={menus} />
         {/* No overflow here on purpose: the window is what scrolls, and an overflow container that
