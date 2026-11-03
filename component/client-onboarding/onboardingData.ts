@@ -185,7 +185,31 @@ export type Account = {
   question?: string;
   // Only a yes or a no is asked, and a no is the whole answer: nothing is offered to be created.
   yesOrNo?: boolean;
+  // Added by the BayShore team for this client ("Discord"), on the step it is on: given by an
+  // invite to our access email or by its login, whichever the client chooses.
+  custom?: CustomSection;
 };
+
+// The steps the team can add accounts to.
+export type CustomSection = "social" | "google";
+// An account the team added, as the form names it: its step and the key the backend keeps it
+// under ("social.customAbc…") — the same as the team's ticks name it.
+const CUSTOM_ID = /^(social|google)\.(custom[A-Za-z]{8})$/;
+const keyOfCustom = (id: string) => CUSTOM_ID.exec(id)?.[2] ?? id;
+
+// The accounts the team added to this client's form, by step, in the order they were added.
+export const customAccountsOf = (onboarding?: Pick<OnboardingAnswers, "socialCustom" | "googleCustom">): Account[] =>
+  (["social", "google"] as const).flatMap((section) =>
+    Object.entries(onboarding?.[`${section}Custom`] ?? {}).map(([key, account]) => ({
+      id: `${section}.${key}`,
+      name: account.name ?? "Account",
+      short: account.name ?? "Account",
+      placeholder: section === "google" ? "Account email, name or ID" : "Profile link or username",
+      steps: null,
+      custom: section,
+    })),
+  );
+const customsOn = (customs: Account[], section: CustomSection) => customs.filter((account) => account.custom === section);
 
 export const GOOGLE: Account[] = [
   {
@@ -497,7 +521,8 @@ export const STEPS: { id: StepId; title: string; heading: string; sub: string }[
 export const EMAIL_STEPS: StepId[] = ["domain", "google", "social"];
 
 // The items each step asks about, in order. Every one is always asked, whatever the answers.
-export const itemsOf = (step: StepId): string[] => {
+// `customs`: the accounts the team added for this client, after the usual ones on their step.
+export const itemsOf = (step: StepId, customs: Account[] = []): string[] => {
   switch (step) {
     case "contact":
       return ["contact"];
@@ -510,9 +535,9 @@ export const itemsOf = (step: StepId): string[] => {
     case "logo":
       return ["logo"];
     case "google":
-      return GOOGLE.map((account) => account.id);
+      return [...GOOGLE, ...customsOn(customs, "google")].map((account) => account.id);
     case "social":
-      return SOCIAL.map((account) => account.id);
+      return [...SOCIAL, ...customsOn(customs, "social")].map((account) => account.id);
     case "media":
       return MEDIA.map((media) => media.id);
     default:
@@ -558,6 +583,8 @@ export const DEFAULT_NOT_NEEDED = ["step:domain", "step:google", "step:social", 
 // kind of media by its name on the record, under its section ("social.facebook"); anything
 // else by its own id. A step is "step:" and its id.
 export const controlIdOf = (item: string) => {
+  // An account the team added is named so already ("social.customAbc…").
+  if (CUSTOM_ID.test(item)) return item;
   const under = (section: string, fields: Record<string, string>) => (item in fields ? `${section}.${fields[item]}` : null);
   return under("google", GOOGLE_FIELDS) ?? under("social", SOCIAL_FIELDS) ?? under("media", MEDIA_FIELDS) ?? item;
 };
@@ -566,7 +593,7 @@ const entriesOf = <Fields extends Record<string, string>>(fields: Fields) => Obj
 
 // The answers as the backend stores them (client.onboarding). An empty answer is left out:
 // each section replaces what was stored for it, so what isn't sent is cleared.
-export const toBackend = (answers: Answers, competitors: Competitor[], pages: string[], features: string[]): OnboardingAnswers => {
+export const toBackend = (answers: Answers, competitors: Competitor[], pages: string[], features: string[], customs: Account[] = []): OnboardingAnswers => {
   const text = (key: string) => {
     const value = answers[key];
     return typeof value === "string" && value.trim() ? value.trim() : undefined;
@@ -675,6 +702,12 @@ export const toBackend = (answers: Answers, competitors: Competitor[], pages: st
     logo: { has: choice("logo.has"), link: text("logo.link"), wantsCreated: wants("logo.create"), style: text("logo.style") },
     google: Object.fromEntries(entriesOf(GOOGLE_FIELDS).map(([id, field]) => [field, account(id)])),
     social: Object.fromEntries(entriesOf(SOCIAL_FIELDS).map(([id, field]) => [field, account(id)])),
+    // Only the answers: the backend keeps the names, and the accounts, as the team set them.
+    ...Object.fromEntries(
+      (["social", "google"] as const)
+        .filter((section) => customsOn(customs, section).length)
+        .map((section) => [`${section}Custom`, Object.fromEntries(customsOn(customs, section).map(({ id }) => [keyOfCustom(id), account(id)]))]),
+    ),
     media: Object.fromEntries(entriesOf(MEDIA_FIELDS).map(([id, field]) => [field, media(id)])),
   };
 };
@@ -766,7 +799,12 @@ export const fromBackend = (stored: Onboarding): { answers: Answers; competitors
   put("logo.create", yesNo(logo?.wantsCreated));
   put("logo.style", logo?.style);
 
-  const accounts = [...entriesOf(GOOGLE_FIELDS).map(([id, field]) => [id, saved.google?.[field]] as const), ...entriesOf(SOCIAL_FIELDS).map(([id, field]) => [id, saved.social?.[field]] as const)];
+  const accounts = [
+    ...entriesOf(GOOGLE_FIELDS).map(([id, field]) => [id, saved.google?.[field]] as const),
+    ...entriesOf(SOCIAL_FIELDS).map(([id, field]) => [id, saved.social?.[field]] as const),
+    ...Object.entries(saved.socialCustom ?? {}).map(([key, account]) => [`social.${key}`, account] as const),
+    ...Object.entries(saved.googleCustom ?? {}).map(([key, account]) => [`google.${key}`, account] as const),
+  ];
   for (const [id, account] of accounts) {
     put(`${id}.has`, account?.has);
     put(`${id}.link`, account?.link);
@@ -871,14 +909,14 @@ const cmsStanding = (answers: Answers): Standing => {
   return platformAccess(answers, "cms");
 };
 
-const accountStanding = (answers: Answers, id: string): Standing => {
+// `own`: the social account itself (a Google one has nothing of its own to say here).
+const accountStanding = (answers: Answers, id: string, own?: Account): Standing => {
   const has = answers[`${id}.has`];
-  const own = SOCIAL.find((account) => account.id === id);
   if (has === "yes") {
     const access = own?.login ? "secure" : own?.grant ? "invite" : answers[`${id}.access`];
     if (!access) return ["Choose access", "pending"];
     // Its own login is asked for on the form itself: both halves, or it isn't answered yet.
-    if (access === "secure" && own?.login) {
+    if (access === "secure" && (own?.login || own?.custom)) {
       return answers[`${id}.username`] && (answers[`${id}.password`] || answers[`${id}.passwordSet`] === true) ? ["Login shared", "done"] : TODO;
     }
     if (access === "secure") return ["Secure link coming", "followup"];
@@ -898,7 +936,7 @@ const mediaStanding = (answers: Answers, id: string): Standing => {
 };
 
 // Every item on the form, with where it stands — for its pill and the progress.
-export const statusesOf = (answers: Answers): Status[] => {
+export const statusesOf = (answers: Answers, customs: Account[] = []): Status[] => {
   const list: Status[] = [];
   const add = (group: string, id: string, name: string, [label, tone]: Standing) => list.push({ id, group, name, label, tone });
 
@@ -942,8 +980,9 @@ export const statusesOf = (answers: Answers): Status[] => {
         : TODO,
   );
 
-  for (const account of GOOGLE) add("Google", account.id, account.short, accountStanding(answers, account.id));
-  for (const account of SOCIAL) add("Social media", account.id, account.short, accountStanding(answers, account.id));
+  // A Google account has nothing of its own to say about its standing — unless the team added it.
+  for (const account of [...GOOGLE, ...customsOn(customs, "google")]) add("Google", account.id, account.short, accountStanding(answers, account.id, account.custom ? account : undefined));
+  for (const account of [...SOCIAL, ...customsOn(customs, "social")]) add("Social media", account.id, account.short, accountStanding(answers, account.id, account));
   for (const media of MEDIA) add("Photos and videos", media.id, media.name, mediaStanding(answers, media.id));
   return list;
 };

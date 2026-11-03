@@ -118,6 +118,11 @@ export interface OnboardingAnswers {
   logo?: { has?: OnboardingYesNo; link?: string; files?: OnboardingFile[]; wantsCreated?: boolean; style?: string; styleFiles?: OnboardingFile[] };
   google?: Partial<Record<"businessProfile" | "analytics" | "searchConsole" | "tagManager" | "ads", OnboardingAccount>>;
   social?: Partial<Record<"facebook" | "instagram" | "youtube" | "linkedin" | "tiktok" | "x" | "email", OnboardingAccount>>;
+  // Social accounts the BayShore team added to this client's form ("Discord"), by key. Their names
+  // are the team's: only the answers about them are sent back.
+  socialCustom?: Record<string, OnboardingAccount & { name?: string }>;
+  // The same on the Google step.
+  googleCustom?: Record<string, OnboardingAccount & { name?: string }>;
   media?: Partial<Record<"professionalPhotos" | "businessPhotos" | "videos", OnboardingMedia>>;
 }
 

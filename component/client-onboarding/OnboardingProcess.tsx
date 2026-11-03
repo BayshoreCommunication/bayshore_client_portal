@@ -20,6 +20,7 @@ import {
   DEFAULT_NOT_NEEDED,
   EMAIL_STEPS,
   controlIdOf,
+  customAccountsOf,
   FEATURE_CHOICES,
   GOAL_BUDGETS,
   GOAL_TARGETS,
@@ -1313,6 +1314,28 @@ const AccountItem = ({ form, account, google }: { form: Form; account: Account; 
             how={google && account.role ? `Give this email ${account.role.toLowerCase()} access to your account, then let us know.` : undefined}
             account
           />
+        ) : account.custom ? (
+          // An account the team added: an invite to our access email, or its login — their choice.
+          <>
+            <p className={account.placeholder ? questionClass : firstQuestionClass}>How would you like to give us access?</p>
+            <Options
+              label="How would you like to give us access?"
+              value={access}
+              onChange={(value) => form.set(`${id}.access`, value)}
+              choices={[
+                { value: "invite", label: "Invite our access email" },
+                { value: "secure", label: "Share the login" },
+              ]}
+            />
+            <Collapse open={access === "invite"}>
+              <EmailAccess form={form} id={id} platform={account.name} account />
+            </Collapse>
+            <Collapse open={access === "secure"}>
+              <div className="mt-3">
+                <LoginFields form={form} account={account} />
+              </div>
+            </Collapse>
+          </>
         ) : (
           <>
             <p className={account.placeholder ? questionClass : firstQuestionClass}>How would you like to give us access?</p>
@@ -1719,6 +1742,8 @@ const OnboardingProcess = ({
   focus?: { step?: string; item?: string };
 }) => {
   const [seed] = useState(() => (initial ? fromBackend(initial) : null));
+  // The accounts the team added for this client ("Discord"), kept up to date (reloadStanding).
+  const [customs, setCustoms] = useState(() => customAccountsOf(initial?.onboarding));
   const [answers, setAnswers] = useState<Answers>(seed?.answers ?? BLANK_ANSWERS);
   const [competitors, setCompetitors] = useState<Competitor[]>(seed?.competitors ?? BLANK_COMPETITORS);
   const [pages, setPages] = useState(seed?.pages ?? DEFAULT_PAGES);
@@ -1770,14 +1795,18 @@ const OnboardingProcess = ({
   // What the team took off this client's form (company-portal: OnboardingControls): steps and
   // items they don't need, which are then not asked — nor counted. Who is answering always is.
   // Until the team has said, it is the steps a client starts without.
-  const [notNeeded] = useState(() => new Set(initial?.onboarding?.notNeeded ?? DEFAULT_NOT_NEEDED));
-  const ownItems = (id: StepId) => (id === "contact" ? itemsOf(id) : notNeeded.has(`step:${id}`) ? [] : itemsOf(id).filter((item) => !notNeeded.has(controlIdOf(item))));
+  // Kept up to date as the team changes it (reloadStanding).
+  const [notNeeded, setNotNeeded] = useState(() => new Set(initial?.onboarding?.notNeeded ?? DEFAULT_NOT_NEEDED));
+  const ownItems = (id: StepId) =>
+    id === "contact" ? itemsOf(id) : notNeeded.has(`step:${id}`) ? [] : itemsOf(id, customs).filter((item) => !notNeeded.has(controlIdOf(item)));
   const steps = STEPS.filter((entry) => ownItems(entry.id).length > 0);
   const asked = new Set(steps.flatMap((entry) => ownItems(entry.id)));
 
   // A step can leave the list while it is open (the team took it off): the one before it then.
   const step = steps[Math.min(current, steps.length - 1)];
-  const statuses = statusesOf(answers).filter((status) => asked.has(status.id));
+  const statuses = statusesOf(answers, customs).filter((status) => asked.has(status.id));
+  // An item's name on the form: the team's own name for an account they added.
+  const titleOf = (item: string) => ITEM_TITLES[item] ?? customs.find((account) => account.id === item)?.name ?? item;
   const statusOf = (item: string) => statuses.find((status) => status.id === item);
   const answered = statuses.filter(isAnswered).length;
   const items = ownItems(step.id);
@@ -1795,6 +1824,8 @@ const OnboardingProcess = ({
       if (!result.ok || !result.data) return;
       setApproved(new Set(result.data.onboarding?.approved ?? []));
       setUpdateAsked(new Set(result.data.onboarding?.updateAsked ?? []));
+      setNotNeeded(new Set(result.data.onboarding?.notNeeded ?? DEFAULT_NOT_NEEDED));
+      setCustoms(customAccountsOf(result.data.onboarding));
     });
   // The comments on the form — the step's box (StepComments) and each item's notes (ItemNotes) —
   // live from either side (backend → onboarding:comment), and reloaded now and then in case the
@@ -1812,6 +1843,11 @@ const OnboardingProcess = ({
     if (!mine) return;
     if (comments) void listMyOnboardingCommentsAction().then((result) => result.ok && result.data && setComments(result.data));
     reloadStanding();
+  });
+  // The team changed what the form asks — turned an item on or off, or added or took off an
+  // account of their own (backend → onboarding:controls): show it at once.
+  useRealtime("onboarding:controls", () => {
+    if (mine) reloadStanding();
   });
   // The team approved more (backend → notifications:new): show it at once.
   useRealtime<{ type?: string }>("notifications:new", (news) => {
@@ -1842,7 +1878,7 @@ const OnboardingProcess = ({
       ...(name ? { contactName: name } : {}),
       ...(company ? { companyName: company } : {}),
       phone: cleanPhone(text(from, "contact.phone").trim()),
-      answers: toBackend(from, competitors, pages, features),
+      answers: toBackend(from, competitors, pages, features, customs),
     };
   };
   const snapshotOf = (from: Answers) => JSON.stringify(detailsOf(from));
@@ -2017,9 +2053,9 @@ const OnboardingProcess = ({
       case "logo":
         return <LogoItem form={form} />;
       default: {
-        const google = GOOGLE.find((account) => account.id === item);
+        const google = [...GOOGLE, ...customs.filter((account) => account.custom === "google")].find((account) => account.id === item);
         if (google) return <AccountItem form={form} account={google} google />;
-        const social = SOCIAL.find((account) => account.id === item);
+        const social = [...SOCIAL, ...customs.filter((account) => account.custom === "social")].find((account) => account.id === item);
         if (social) return <AccountItem form={form} account={social} google={false} />;
         const media = MEDIA.find((entry) => entry.id === item);
         return media ? <MediaItem form={form} media={media} /> : null;
@@ -2104,7 +2140,7 @@ const OnboardingProcess = ({
                     const noteApproved = approved.has(noteId);
                     const askedHere = updateAsked.has(noteId) || (item === "hosting" && updateAsked.has("cms"));
                     const notesBox = notes.length ? (
-                      <ItemNotes step={step.id} item={{ id: noteId, label: ITEM_TITLES[item] }} comments={notes} asked={askedHere} approved={noteApproved} name={text(answers, "contact.name")} onPosted={putComment} />
+                      <ItemNotes step={step.id} item={{ id: noteId, label: titleOf(item) }} comments={notes} asked={askedHere} approved={noteApproved} name={text(answers, "contact.name")} onPosted={putComment} />
                     ) : null;
                     return (
                       <div
@@ -2127,7 +2163,7 @@ const OnboardingProcess = ({
                           >
                             <span className="flex items-center gap-2.5 text-[14px] font-semibold text-[#0b0c24]">
                               <ChevronDown size={15} strokeWidth={2.25} className={`shrink-0 text-[#6b7280] transition-transform ${open ? "" : "-rotate-90"}`} />
-                              {ITEM_TITLES[item]}
+                              {titleOf(item)}
                             </span>
                             <span className="flex items-center gap-1.5">
                               {askedHere ? <span className="rounded-full bg-[#fef3c7] px-2.5 py-0.5 text-[11px] font-semibold whitespace-nowrap text-[#92400e]">Update asked</span> : null}
@@ -2136,7 +2172,7 @@ const OnboardingProcess = ({
                           </button>
                         ) : (
                           <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
-                            <h3 className="text-[14px] font-semibold text-[#0b0c24]">{ITEM_TITLES[item]}</h3>
+                            <h3 className="text-[14px] font-semibold text-[#0b0c24]">{titleOf(item)}</h3>
                             <span className="flex items-center gap-1.5">
                               {askedHere ? <span className="rounded-full bg-[#fef3c7] px-2.5 py-0.5 text-[11px] font-semibold whitespace-nowrap text-[#92400e]">Update asked</span> : null}
                               {status ? <Pill tone={status.tone}>{status.label}</Pill> : null}
