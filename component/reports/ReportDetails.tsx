@@ -36,6 +36,7 @@ import {
   previousLabel,
   type Change,
 } from "./reportUi";
+import ReportComments from "./ReportComments";
 
 // lucide ships no brand logos, so the four social networks get their own marks.
 type IconComponent = LucideIcon | ((props: { size?: number }) => ReactNode);
@@ -741,6 +742,8 @@ const ReportDetails = ({
           This report has no figures yet.
         </div>
       ) : null}
+
+      <ReportComments reportId={report._id} />
 
       <div className="px-0.5 py-1 text-[11.5px] text-[#6b7280]">
         Prepared by BayShore Communication for {name} · {published}

@@ -1,7 +1,10 @@
-import ComingSoon from "@/component/shared/ComingSoon";
+import { listMyMessagesAction } from "@/app/actions/messages";
+import Messages from "@/component/messages/Messages";
 
-const MessagesPage = () => {
-  return <ComingSoon title="Coming Soon" />;
+// The client's conversation with the BayShore team.
+const MessagesPage = async () => {
+  const initial = await listMyMessagesAction();
+  return <Messages initial={initial} />;
 };
 
 export default MessagesPage;

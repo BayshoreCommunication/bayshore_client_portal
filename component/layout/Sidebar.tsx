@@ -17,6 +17,8 @@ import {
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { Fragment, useEffect } from "react";
+import { countUnreadMessagesAction } from "@/app/actions/messages";
+import { useUnreadMessages } from "@/component/messages/chat";
 
 type NavItem = {
   // What the team's choice of pages knows this one by (the backend's CLIENT_PORTAL_MENUS).
@@ -50,7 +52,7 @@ const NAV_SECTIONS: NavSection[] = [
     heading: "Workspace",
     items: [
       { key: "calendar", label: "Calendar", icon: Calendar, href: "/calendar" },
-      { key: "messages", label: "Messages", icon: MessageSquare, href: "/messages", badge: 2 },
+      { key: "messages", label: "Messages", icon: MessageSquare, href: "/messages" },
       { key: "payments", label: "Payments", icon: CreditCard, href: "/payments" },
     ],
   },
@@ -67,9 +69,14 @@ const NAV_SECTIONS: NavSection[] = [
 const Sidebar = ({ menus }: { menus: string[] | null }) => {
   const pathname = usePathname();
   const router = useRouter();
+  // Messages from the team not read yet.
+  const unread = useUnreadMessages(countUnreadMessagesAction, "client");
 
   const shown = (item: NavItem) => !item.key || !menus || menus.includes(item.key);
-  const sections = NAV_SECTIONS.map((section) => ({ ...section, items: section.items.filter(shown) })).filter((section) => section.items.length > 0);
+  const sections = NAV_SECTIONS.map((section) => ({
+    ...section,
+    items: section.items.filter(shown).map((item) => (item.key === "messages" ? { ...item, badge: unread } : item)),
+  })).filter((section) => section.items.length > 0);
 
   // A page that was taken off their menu isn't opened by its address either: they are sent to
   // the first page they do have.
@@ -125,7 +132,7 @@ const Sidebar = ({ menus }: { menus: string[] | null }) => {
                   </Link>
                   {item.badge ? (
                     <span className="flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-[#dc2626] px-1 text-[10.5px] font-bold text-white">
-                      {item.badge}
+                      {item.badge > 99 ? "99+" : item.badge}
                     </span>
                   ) : null}
                 </li>
