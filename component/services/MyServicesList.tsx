@@ -1,7 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import { CalendarClock, CheckCircle2, ChevronDown, History, Repeat, Sparkles } from "lucide-react";
+import Link from "next/link";
+import { CalendarClock, CheckCircle2, ChevronDown, ChevronRight, History, Repeat, Sparkles } from "lucide-react";
 import type { MyServicesData } from "@/app/actions/service";
 import { inter, poppins } from "@/component/shared/fonts";
 import { groupOfName } from "./serviceCatalog";
@@ -10,7 +11,13 @@ import { dollars } from "./serviceUi";
 // Everything the client has with BayShore, on one card: what they pay each month, what they pay
 // once, and — under it — what was finished for them, to look back on. Totals sit at the foot.
 
-type Row = { key: string; name: string; price?: number; included: string[]; note?: string; addedAt?: string };
+type Row = { key: string; name: string; price?: number; included: string[]; note?: string; addedAt?: string; project?: string; stage?: "new" | "in_progress" };
+
+// A one-time service is also a project: how far the work on it has got.
+const STAGES = {
+  new: { label: "Not started", color: "#3730a3", background: "#e3e7fb" },
+  in_progress: { label: "In progress", color: "#a35a12", background: "#fbecd3" },
+} as const;
 
 const dateOf = (iso?: string) => (iso ? new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : undefined);
 
@@ -30,12 +37,22 @@ const ServiceRow = ({ row, suffix }: { row: Row; suffix: string }) => {
       >
         <span className="h-9 w-1 shrink-0 rounded-full" style={{ background: group.color }} />
         <span className="min-w-0 flex-1">
-          <span className="block truncate text-[14px] font-semibold text-[#111827]">{row.name}</span>
+          <span className="flex min-w-0 items-center gap-2">
+            <span className="truncate text-[14px] font-semibold text-[#111827]">{row.name}</span>
+            {row.stage ? (
+              <span className="shrink-0 rounded-full px-2 py-0.5 text-[10.5px] font-semibold" style={{ color: STAGES[row.stage].color, background: STAGES[row.stage].background }}>
+                {STAGES[row.stage].label}
+              </span>
+            ) : null}
+          </span>
           {meta ? <span className="block truncate text-[12px] text-[#6b7280]">{meta}</span> : null}
         </span>
         <span className="shrink-0 text-right">
           {row.price === undefined ? (
             <span className="text-[12.5px] font-medium text-[#6b7280]">In your plan</span>
+          ) : row.price === 0 && suffix === " once" ? (
+            // A project made into a service before the team priced it.
+            <span className="text-[12.5px] font-medium text-[#6b7280]">Price to come</span>
           ) : (
             <span className={`${poppins.className} text-[15px] font-semibold text-[#111827] tabular-nums`}>
               {dollars(row.price)}
@@ -45,6 +62,11 @@ const ServiceRow = ({ row, suffix }: { row: Row; suffix: string }) => {
         </span>
         {row.included.length ? <ChevronDown className={`size-4 shrink-0 text-[#9ca3af] transition-transform ${open ? "rotate-180" : ""}`} strokeWidth={2} /> : <span className="size-4 shrink-0" />}
       </button>
+      {row.project ? (
+        <Link href={`/projects/${row.project}`} className="-mt-1.5 flex items-center gap-1 px-4 pb-3 pl-8 text-[12px] font-medium text-[#2f5fd8] no-underline hover:underline">
+          View project <ChevronRight className="size-3.5" strokeWidth={2.25} />
+        </Link>
+      ) : null}
       {open ? (
         <ul className="flex flex-wrap gap-1.5 px-4 pb-3 pl-8">
           {row.included.map((line) => (
@@ -98,7 +120,7 @@ const MyServicesList = ({ mine }: { mine: MyServicesData }) => {
     ...(mine.plans ?? []).map((plan) => ({ key: `plan-${plan.name}`, name: plan.name, price: plan.monthly, included: plan.included, addedAt: plan.addedAt })),
     ...(mine.unpriced ?? []).map((name) => ({ key: `unpriced-${name}`, name, included: [] })),
   ];
-  const oneTime: Row[] = (mine.oneTime ?? []).map((item) => ({ key: `once-${item.name}`, name: item.name, price: item.price, included: item.included ?? [], note: item.detail, addedAt: item.addedAt }));
+  const oneTime: Row[] = (mine.oneTime ?? []).map((item) => ({ key: `once-${item.name}`, name: item.name, price: item.price, included: item.included ?? [], note: item.detail, addedAt: item.addedAt, project: item.project, stage: item.stage }));
   const history = mine.history ?? [];
   const monthlyTotal = mine.monthlyTotal + (mine.planTotal ?? 0);
   const oneTimeTotal = mine.oneTimeTotal ?? oneTime.reduce((sum, row) => sum + (row.price ?? 0), 0);
@@ -147,7 +169,14 @@ const MyServicesList = ({ mine }: { mine: MyServicesData }) => {
                 <li key={`${item.name}-${item.doneAt ?? ""}`} className="flex items-center gap-3 px-5 py-3">
                   <CheckCircle2 className="size-4.5 shrink-0 text-[#16a34a]" strokeWidth={2.25} />
                   <span className="min-w-0 flex-1">
-                    <span className="block truncate text-[13.5px] font-semibold text-[#374151]">{item.name}</span>
+                    <span className="flex min-w-0 items-center gap-2">
+                      <span className="truncate text-[13.5px] font-semibold text-[#374151]">{item.name}</span>
+                      {item.project ? (
+                        <Link href={`/projects/${item.project}`} className="shrink-0 text-[11.5px] font-medium text-[#2f5fd8] no-underline hover:underline">
+                          View project
+                        </Link>
+                      ) : null}
+                    </span>
                     <span className="flex flex-wrap items-center gap-x-1.5 text-[12px] text-[#6b7280]">
                       {item.doneAt ? (
                         <span className="inline-flex items-center gap-1">

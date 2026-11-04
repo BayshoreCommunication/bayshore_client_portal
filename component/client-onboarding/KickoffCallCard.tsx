@@ -2,21 +2,27 @@
 
 import { useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { CalendarClock, CheckCircle2, ExternalLink, Loader2 } from "lucide-react";
+import { CalendarClock, CheckCircle2, ExternalLink, Loader2, Video } from "lucide-react";
+import { bookMyCallAction, getMyBookingAction, type BookedCall } from "@/app/actions/booking";
+import BookingSlots, { callTimeOf } from "@/component/shared/BookingSlots";
 import { updateMyOnboardingAction } from "@/app/actions/onboarding";
 import { BOOKING_URL } from "@/lib/booking";
 
 // Over the onboarding form: booking the onboarding call. The call matters more than the form —
 // a marketing specialist fills in what's missing with the client on it — so a client who hasn't
 // booked can do it here, at any time: from the reminder emails (which open it, `open`), or after
-// "I'll book later" at the end of signing up. Google's calendar can't tell this page a time was
-// booked, so the client says so ("I've booked my call"), and the backend emails a confirmation.
+// "I'll book later" at the end of signing up. The free times on the team's booking calendar are
+// picked from here and booked at once; without one, the Google booking page is shown, which can't
+// tell this page a time was booked — so the client says so ("I've booked my call").
 const KickoffCallCard = ({ booked: bookedAtFirst, formDone, open: openAtFirst }: { booked: boolean; formDone: boolean; open: boolean }) => {
   const [booked, setBooked] = useState(bookedAtFirst);
   const [open, setOpen] = useState(openAtFirst && !bookedAtFirst);
   const [loaded, setLoaded] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [mode, setMode] = useState<"slots" | "fallback">("slots");
+  // Booked just now, here: shown until the page is left.
+  const [call, setCall] = useState<BookedCall | null>(null);
   const card = useRef<HTMLDivElement>(null);
 
   // Arriving from an email's "Book your onboarding call", the calendar is what they came for.
@@ -33,6 +39,30 @@ const KickoffCallCard = ({ booked: bookedAtFirst, formDone, open: openAtFirst }:
     setBooked(true);
     setOpen(false);
   };
+
+  if (call?.callAt) {
+    return (
+      <div className="mb-5 flex flex-wrap items-center gap-4 rounded-2xl border border-[#bbe5cb] bg-[#f0faf4] px-5 py-4.5">
+        <span className="grid size-11 flex-none place-items-center rounded-xl bg-[#dcf3e5] text-[#15803d]">
+          <CheckCircle2 className="size-5.5" strokeWidth={2} />
+        </span>
+        <div className="min-w-0 flex-1 basis-64">
+          <p className="text-[15px] font-semibold text-[#0b1522]">Your onboarding call is booked</p>
+          <p className="mt-0.5 text-[13px] text-[#4b5563]">{callTimeOf(call.callAt)} · Google is emailing you the invite.</p>
+        </div>
+        {call.meetLink ? (
+          <a
+            href={call.meetLink}
+            target="_blank"
+            rel="noopener"
+            className="inline-flex items-center gap-1.5 rounded-lg border border-[#bbe5cb] bg-white px-4 py-2.5 text-[13px] font-semibold text-[#15803d] no-underline hover:bg-[#f7fdf9]"
+          >
+            <Video className="size-4" /> Google Meet link
+          </a>
+        ) : null}
+      </div>
+    );
+  }
 
   // Booked: nothing left to say here.
   if (booked) return null;
@@ -57,38 +87,56 @@ const KickoffCallCard = ({ booked: bookedAtFirst, formDone, open: openAtFirst }:
           onClick={() => setOpen((shown) => !shown)}
           className="cursor-pointer rounded-lg bg-[#0b1522] px-4 py-2.5 text-[13px] font-semibold whitespace-nowrap text-white transition-colors hover:bg-[#1f2a3a] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#2f5fd8]"
         >
-          {open ? "Hide calendar" : "Pick a time"}
+          {open ? "Hide times" : "Pick a time"}
         </button>
       </div>
 
       <AnimatePresence initial={false}>
         {open ? (
           <motion.div key="calendar" initial={{ height: 0, opacity: 0 }} animate={{ height: "auto", opacity: 1 }} exit={{ height: 0, opacity: 0 }} transition={{ duration: 0.25, ease: "easeOut" }} className="overflow-hidden">
-            <div className="relative h-160 border-t border-[#eceef2] bg-white max-[640px]:h-150">
-              {loaded ? null : <p className="absolute inset-0 grid place-items-center text-[13px] text-[#6b7280]">Loading the calendar…</p>}
-              <iframe src={`${BOOKING_URL}?gv=true`} title="Book your onboarding call" onLoad={() => setLoaded(true)} className={`relative block size-full border-0 transition-opacity duration-300 ${loaded ? "opacity-100" : "opacity-0"}`} />
+            <div className="border-t border-[#eceef2]">
+              <BookingSlots
+                load={getMyBookingAction}
+                book={bookMyCallAction}
+                onMode={setMode}
+                onBooked={(booked) => {
+                  setCall(booked);
+                  setBooked(true);
+                  setOpen(false);
+                }}
+                fallback={
+                  <>
+                    <div className="relative h-160 bg-white max-[640px]:h-150">
+                      {loaded ? null : <p className="absolute inset-0 grid place-items-center text-[13px] text-[#6b7280]">Loading the calendar…</p>}
+                      <iframe src={`${BOOKING_URL}?gv=true`} title="Book your onboarding call" onLoad={() => setLoaded(true)} className={`relative block size-full border-0 transition-opacity duration-300 ${loaded ? "opacity-100" : "opacity-0"}`} />
+                    </div>
+                  </>
+                }
+              />
             </div>
-            <div className="flex flex-wrap items-center justify-between gap-3 border-t border-[#eceef2] bg-[#f7f8fa] px-5 py-3.5">
-              <a href={BOOKING_URL} target="_blank" rel="noopener" className="inline-flex items-center gap-1.5 text-[12.5px] font-medium text-[#2f5fd8] hover:underline">
-                Can&apos;t see the calendar? Open it in a new tab <ExternalLink className="size-3.5" />
-              </a>
-              <div className="flex items-center gap-3">
-                {error ? (
-                  <p role="alert" className="text-[12.5px] font-medium text-[#b42318]">
-                    {error}
-                  </p>
-                ) : null}
-                <button
-                  type="button"
-                  onClick={confirm}
-                  disabled={saving}
-                  className="inline-flex cursor-pointer items-center gap-2 rounded-lg bg-[#15803d] px-4 py-2.5 text-[13px] font-semibold text-white transition-colors hover:bg-[#166534] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#2f5fd8] disabled:cursor-wait disabled:opacity-70"
-                >
-                  {saving ? <Loader2 className="size-4 animate-spin" /> : <CheckCircle2 className="size-4" />}
-                  {saving ? "Saving…" : "I've booked my call"}
-                </button>
+            {mode === "fallback" ? (
+              <div className="flex flex-wrap items-center justify-between gap-3 border-t border-[#eceef2] bg-[#f7f8fa] px-5 py-3.5">
+                <a href={BOOKING_URL} target="_blank" rel="noopener" className="inline-flex items-center gap-1.5 text-[12.5px] font-medium text-[#2f5fd8] hover:underline">
+                  Can&apos;t see the calendar? Open it in a new tab <ExternalLink className="size-3.5" />
+                </a>
+                <div className="flex items-center gap-3">
+                  {error ? (
+                    <p role="alert" className="text-[12.5px] font-medium text-[#b42318]">
+                      {error}
+                    </p>
+                  ) : null}
+                  <button
+                    type="button"
+                    onClick={confirm}
+                    disabled={saving}
+                    className="inline-flex cursor-pointer items-center gap-2 rounded-lg bg-[#15803d] px-4 py-2.5 text-[13px] font-semibold text-white transition-colors hover:bg-[#166534] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#2f5fd8] disabled:cursor-wait disabled:opacity-70"
+                  >
+                    {saving ? <Loader2 className="size-4 animate-spin" /> : <CheckCircle2 className="size-4" />}
+                    {saving ? "Saving…" : "I've booked my call"}
+                  </button>
+                </div>
               </div>
-            </div>
+            ) : null}
           </motion.div>
         ) : null}
       </AnimatePresence>

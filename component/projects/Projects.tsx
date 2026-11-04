@@ -26,6 +26,7 @@ import {
 } from "lucide-react";
 import { deleteMyProjectAction, type MyProject, type MyProjectListData } from "@/app/actions/project";
 import { poppins } from "@/component/shared/fonts";
+import { dollars } from "@/component/services/serviceUi";
 import {
   PROJECT_PRIORITIES as PRIORITIES,
   PROJECT_PRIORITY_KEYS,
@@ -338,7 +339,7 @@ const Projects = ({ data, error, filters }: { data?: MyProjectListData; error?: 
         <div>
           <div className="text-[28px] leading-tight font-bold text-[#0b0c24]">Projects</div>
           <div className="mt-1 text-[12.5px] text-[#4b5563]">
-            Larger pieces of work you&apos;ve asked BayShore for, from website redesigns to campaign launches.
+            One-time work BayShore does for you — the same items listed as one-time services on your Services page.
           </div>
         </div>
         <Link href="/projects/add" className={`${addButtonClass} h-9.5 px-4`}>
@@ -431,7 +432,8 @@ const Projects = ({ data, error, filters }: { data?: MyProjectListData; error?: 
                         <th className={`${thClass} rounded-l-lg`}>Project</th>
                         <th className={thClass}>Priority</th>
                         <th className={thClass}>Submitted</th>
-                        <th className={thClass}>Target Date</th>
+                        <th className={thClass}>Deadline</th>
+                        <th className={thClass}>Price</th>
                         <th className={thClass}>Files</th>
                         <th className={thClass}>Status</th>
                         <th className={`${thClass} rounded-r-lg text-right`}>
@@ -486,6 +488,7 @@ const Projects = ({ data, error, filters }: { data?: MyProjectListData; error?: 
                                 </span>
                               ) : null}
                             </td>
+                            <td className={`${tdClass} tabular-nums`}>{project.price ? dollars(project.price) : <span className="text-[#9ca3af]">Price to come</span>}</td>
                             <td className={`${tdClass} text-[#4b5260]`}>
                               {project.files.length ? (
                                 <span className="inline-flex items-center gap-1.25" title={project.files.map((file) => file.name).join(", ")}>

@@ -1,4 +1,4 @@
-import { Bell, Briefcase, CheckCircle2, FileText, Inbox, Layers, MessageCircle, MessageSquareText, PencilLine, RotateCcw, type LucideIcon } from "lucide-react";
+import { Bell, Briefcase, CalendarCheck, CalendarClock, CheckCircle2, FileText, Inbox, KeyRound, Layers, MessageCircle, MessageSquareText, PencilLine, RotateCcw, type LucideIcon } from "lucide-react";
 import type { NotificationType } from "@/app/actions/notifications";
 
 // What each kind of notification looks like — shared by the bell in the top bar and the
@@ -12,6 +12,9 @@ const KINDS: Record<NotificationType, Kind> = {
   onboarding_comment: { label: "Onboarding comment", icon: MessageSquareText, color: "#2f5fd8", background: "#e8effd" },
   onboarding_approved: { label: "Approved", icon: CheckCircle2, color: "#16a34a", background: "#d2e7d8" },
   services_updated: { label: "Your services", icon: Layers, color: "#3b5bab", background: "#e3e9f6" },
+  login_changed: { label: "Your sign-in", icon: KeyRound, color: "#b45309", background: "#fdecd3" },
+  onboarding_reminder: { label: "Book your call", icon: CalendarClock, color: "#2f5fd8", background: "#e8effd" },
+  onboarding_call_booked: { label: "Call booked", icon: CalendarCheck, color: "#16a34a", background: "#d2e7d8" },
   message: { label: "Message", icon: MessageCircle, color: "#0891b2", background: "#d5eef3" },
   report_published: { label: "New report", icon: FileText, color: "#16a34a", background: "#d2e7d8" },
   project_created: { label: "New project", icon: Briefcase, color: "#c8811f", background: "#f5e3c9" },
@@ -32,6 +35,9 @@ export const CLIENT_NOTIFICATIONS: { type: NotificationType; description: string
   { type: "onboarding_comment", description: "BayShore commented or replied on your onboarding form." },
   { type: "onboarding_approved", description: "BayShore approved items on your onboarding form." },
   { type: "services_updated", description: "BayShore added, changed or finished one of your services." },
+  { type: "login_changed", description: "BayShore changed your sign-in email or set a new password." },
+  { type: "onboarding_reminder", description: "A reminder to book your onboarding call." },
+  { type: "onboarding_call_booked", description: "Your onboarding call is booked." },
   { type: "message", description: "BayShore sent you a message or set up a meeting." },
   { type: "report_published", description: "A new performance report is ready to read." },
   { type: "project_created", description: "BayShore started a new project for you." },

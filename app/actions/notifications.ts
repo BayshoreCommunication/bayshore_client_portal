@@ -27,7 +27,12 @@ export type NotificationType =
   | "onboarding_comment"
   // The team approved items on the onboarding form.
   | "onboarding_approved"
-  | "services_updated";
+  | "services_updated"
+  // The team changed the sign-in email or set a new password.
+  | "login_changed"
+  // The onboarding call: still to book (the reminder), or booked.
+  | "onboarding_reminder"
+  | "onboarding_call_booked";
 
 // Named NotificationItem because `Notification` is already the browser's own (desktop alerts).
 export interface NotificationItem {

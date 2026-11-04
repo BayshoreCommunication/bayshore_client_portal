@@ -34,6 +34,8 @@ export interface MyProject {
   requestedBy: "client" | "team";
   startedAt?: string;
   completedAt?: string;
+  // What BayShore charges for it, once priced (it's also on Services as a one-time service).
+  price?: number;
   createdAt: string;
   updatedAt: string;
 }

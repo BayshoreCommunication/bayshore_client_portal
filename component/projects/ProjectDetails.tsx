@@ -8,6 +8,7 @@ import {
   CalendarDays,
   CheckCircle2,
   Circle,
+  DollarSign,
   Download,
   Flag,
   Loader2,
@@ -170,7 +171,7 @@ const ProjectDetails = ({ project }: { project: MyProject }) => {
 
           <div className={`${cardClass} p-5`}>
             <div className="mb-1 text-[14px] font-semibold text-[#0b0c24]">Details</div>
-            <DetailRow icon={CalendarDays} label="Target completion">
+            <DetailRow icon={CalendarDays} label="Deadline">
               {formatTargetDate(project.targetDate) || "Not set"}
               {due ? (
                 <span
@@ -181,6 +182,9 @@ const ProjectDetails = ({ project }: { project: MyProject }) => {
                   {due.text}
                 </span>
               ) : null}
+            </DetailRow>
+            <DetailRow icon={DollarSign} label="Price">
+              {project.price ? `$${project.price.toLocaleString("en-US", { maximumFractionDigits: 2 })}` : "Price to come"}
             </DetailRow>
             <DetailRow icon={Flag} label="Priority">
               <span style={{ color: priority.color }}>{priority.label}</span>

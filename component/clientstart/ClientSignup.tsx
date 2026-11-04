@@ -6,6 +6,8 @@ import { AnimatePresence, MotionConfig, motion, type HTMLMotionProps } from "fra
 import { enterPortalAction, saveSignupAnswersAction, signUpAction, type SignupAnswers } from "@/app/actions/auth";
 import { fraunces, poppins } from "@/component/shared/fonts";
 import { BOOKING_URL } from "@/lib/booking";
+import { bookSignupCallAction, getSignupBookingAction, type BookedCall } from "@/app/actions/booking";
+import BookingSlots, { callTimeOf } from "@/component/shared/BookingSlots";
 import { ButtonArrow, Logo, WelcomeShell, suButtonClass, suFocusRing, suInputClass, suInputState } from "@/component/clientstart/WelcomeShell";
 
 // A new client's way in, all of it on the front page: first the account, then — still on this
@@ -112,8 +114,11 @@ type State = {
   // A skipped step counts as done too, so it can be gone back to.
   done: StepId[];
   skipped: StepId[];
-  // Whether the client says they booked the call: Google's calendar doesn't tell this page.
+  // Whether the call is booked: picked here (the team's booking calendar), or — on the Google
+  // booking page, which doesn't tell this page — the client says so.
   booked: boolean;
+  // The call booked here: when, and its Meet link.
+  call: BookedCall | null;
   // The accounts the team was asked to create, as of the last time the step was left.
   tasks: string[];
   f: Record<FieldId, string>;
@@ -133,6 +138,7 @@ const BLANK: State = {
   done: [],
   skipped: [],
   booked: false,
+  call: null,
   tasks: [],
   f: BLANK_FIELDS,
   terms: false,
@@ -170,6 +176,9 @@ type Flow = {
   enter: () => void;
   // They are being signed in just now.
   entering: boolean;
+  // The free times for the call, and booking one — with the account they made at the start.
+  loadBooking: () => ReturnType<typeof getSignupBookingAction>;
+  bookCall: (start: string) => ReturnType<typeof bookSignupCallAction>;
   // The account is being created just now.
   creating: boolean;
   say: (message: string) => void;
@@ -1797,13 +1806,49 @@ const Summary = ({ flow }: { flow: Flow }) => {
 const BookStep = ({ flow }: { flow: Flow }) => {
   const { s } = flow;
   const [loaded, setLoaded] = useState(false);
+  // Free times from the team's calendar ("slots"), or the Google booking page ("fallback").
+  const [mode, setMode] = useState<"loading" | "slots" | "fallback">("loading");
+  // Picking another time for a call booked here: it stays booked until the new one is.
+  const [changing, setChanging] = useState(false);
 
-  // Google's calendar can't say when a time has been booked, so the client says so.
+  // On the Google booking page the client says they booked: it can't tell this page.
   const confirm = () => {
     flow.patch((now) => ({ booked: true, done: withStep(now.done, "book") }));
     flow.save(["book"], { booked: true });
     flow.say("Booked! A confirmation is on its way to your inbox.");
   };
+
+  // Booked here: the backend has it already.
+  const booked = (call: BookedCall) => {
+    setChanging(false);
+    flow.patch((now) => ({ booked: true, call, done: withStep(now.done, "book") }));
+    flow.say(changing ? "Your call has moved. Google is sending you the new invite." : "Booked! Google is sending you the invite.");
+  };
+
+  const googlePage = (
+    <>
+      <div className="relative h-175 bg-white">
+        {loaded ? null : <p className="absolute inset-0 grid place-items-center text-[13px] text-[#5b6a72]">Loading the calendar…</p>}
+        <motion.iframe
+          src={`${BOOKING_URL}?gv=true`}
+          title="Book your onboarding call"
+          onLoad={() => setLoaded(true)}
+          initial={false}
+          animate={{ opacity: loaded ? 1 : 0 }}
+          transition={{ duration: 0.3 }}
+          className="relative block size-full border-0"
+        />
+      </div>
+      <p className="border-t border-[#e1e7e3] bg-[#f8faf9] px-6 py-3 text-[12.5px] text-[#5b6a72]">
+        Can&apos;t see the calendar?{" "}
+        <a href={BOOKING_URL} target="_blank" rel="noopener" className="text-[#7a5a17] underline">
+          Open it in a new tab
+        </a>
+      </p>
+    </>
+  );
+
+  const showBooked = s.booked && !changing;
 
   return (
     <>
@@ -1813,7 +1858,7 @@ const BookStep = ({ flow }: { flow: Flow }) => {
 
         <div className={`${cardClass} overflow-hidden`}>
           <AnimatePresence mode="wait" initial={false}>
-            {s.booked ? (
+            {showBooked ? (
               <motion.div key="booked" initial={{ opacity: 0, scale: 0.97 }} animate={{ opacity: 1, scale: 1 }} transition={{ duration: 0.25, ease: "easeOut" }} className="px-8 py-13 text-center">
                 <motion.div
                   initial={{ scale: 0 }}
@@ -1826,37 +1871,35 @@ const BookStep = ({ flow }: { flow: Flow }) => {
                   </svg>
                 </motion.div>
                 <h2 className="mb-1.5 text-[19px] font-semibold">You&apos;re booked.</h2>
+                {s.call?.callAt ? (
+                  <p className="mx-auto mb-2 text-[15px] font-semibold text-[#16212a]">{callTimeOf(s.call.callAt)}</p>
+                ) : null}
                 <p className="mx-auto mb-5 max-w-90 text-[#5b6a72]">A calendar invite is on its way to your inbox. Next is your onboarding form — we&apos;ll sign you in and take you there.</p>
-                <Btn onClick={flow.enter} disabled={flow.entering} aria-busy={flow.entering} className="disabled:cursor-wait disabled:opacity-70">
-                  {flow.entering ? (
-                    "Signing you in…"
-                  ) : (
-                    <>
-                      Continue to onboarding <Icon name="arrow" className="size-4" />
-                    </>
-                  )}
-                </Btn>
+                <div className="flex flex-wrap items-center justify-center gap-3">
+                  {s.call?.meetLink ? (
+                    <a
+                      href={s.call.meetLink}
+                      target="_blank"
+                      rel="noopener"
+                      className="inline-flex items-center gap-1.5 rounded-lg border border-[#cfdcd6] bg-white px-4 py-2.5 text-[13.5px] font-semibold text-[#2f5f4a] no-underline hover:bg-[#f2f8f5]"
+                    >
+                      Google Meet link
+                    </a>
+                  ) : null}
+                  <Btn onClick={flow.enter} disabled={flow.entering} aria-busy={flow.entering} className="disabled:cursor-wait disabled:opacity-70">
+                    {flow.entering ? (
+                      "Signing you in…"
+                    ) : (
+                      <>
+                        Continue to onboarding <Icon name="arrow" className="size-4" />
+                      </>
+                    )}
+                  </Btn>
+                </div>
               </motion.div>
             ) : (
               <motion.div key="calendar" exit={{ opacity: 0 }} transition={{ duration: 0.15 }}>
-                <div className="relative h-175 bg-white">
-                  {loaded ? null : <p className="absolute inset-0 grid place-items-center text-[13px] text-[#5b6a72]">Loading the calendar…</p>}
-                  <motion.iframe
-                    src={`${BOOKING_URL}?gv=true`}
-                    title="Book your onboarding call"
-                    onLoad={() => setLoaded(true)}
-                    initial={false}
-                    animate={{ opacity: loaded ? 1 : 0 }}
-                    transition={{ duration: 0.3 }}
-                    className="relative block size-full border-0"
-                  />
-                </div>
-                <p className="border-t border-[#e1e7e3] bg-[#f8faf9] px-6 py-3 text-[12.5px] text-[#5b6a72]">
-                  Can&apos;t see the calendar?{" "}
-                  <a href={BOOKING_URL} target="_blank" rel="noopener" className="text-[#7a5a17] underline">
-                    Open it in a new tab
-                  </a>
-                </p>
+                <BookingSlots load={flow.loadBooking} book={flow.bookCall} onBooked={booked} onMode={setMode} fallback={googlePage} />
               </motion.div>
             )}
           </AnimatePresence>
@@ -1867,18 +1910,29 @@ const BookStep = ({ flow }: { flow: Flow }) => {
           Back
         </Btn>
         <div className="ml-auto flex items-center gap-4">
-          {s.booked ? (
-            // The way back for someone who said "booked" too soon.
-            <button
-              type="button"
-              className={linkButton}
-              onClick={() => {
-                setLoaded(false);
-                flow.patch({ booked: false });
-              }}
-            >
-              Back to the calendar
+          {changing ? (
+            <button type="button" className={linkButton} onClick={() => setChanging(false)}>
+              Keep my time
             </button>
+          ) : s.booked ? (
+            s.call ? (
+              // Booked here: another time can be picked; this one stays until it is.
+              <button type="button" className={linkButton} onClick={() => setChanging(true)}>
+                Pick a different time
+              </button>
+            ) : (
+              // The way back for someone who said "booked" too soon.
+              <button
+                type="button"
+                className={linkButton}
+                onClick={() => {
+                  setLoaded(false);
+                  flow.patch({ booked: false });
+                }}
+              >
+                Back to the calendar
+              </button>
+            )
           ) : (
             <>
               <button
@@ -1892,7 +1946,7 @@ const BookStep = ({ flow }: { flow: Flow }) => {
               >
                 {flow.entering ? "Signing you in…" : "I\u2019ll book later"}
               </button>
-              <Btn onClick={confirm}>I&apos;ve booked my call</Btn>
+              {mode === "fallback" ? <Btn onClick={confirm}>I&apos;ve booked my call</Btn> : null}
             </>
           )}
         </div>
@@ -2071,7 +2125,30 @@ const useFlow = (initial: State) => {
     }
   };
 
-  const flow: Flow = { s, errors, patch, setField, setPick, go, next, skip, skipAll, back: () => go(prevOf(s.screen)), signUp, save, enter, entering, creating, say };
+  const noAccount = { ok: false as const, error: "Your account isn't open on this page any more. Please log in to book your call." };
+  const loadBooking = async () => (password.current ? getSignupBookingAction(val(s, "su-email"), password.current) : noAccount);
+  const bookCall = async (start: string) => (password.current ? bookSignupCallAction(val(s, "su-email"), password.current, start) : noAccount);
+
+  const flow: Flow = {
+    s,
+    errors,
+    patch,
+    setField,
+    setPick,
+    go,
+    next,
+    skip,
+    skipAll,
+    back: () => go(prevOf(s.screen)),
+    signUp,
+    save,
+    enter,
+    entering,
+    creating,
+    say,
+    loadBooking,
+    bookCall,
+  };
   return { flow, root, toast, confetti };
 };
 

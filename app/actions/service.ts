@@ -65,6 +65,8 @@ export interface MyServiceHistoryItem {
   included?: string[];
   addedAt?: string;
   doneAt?: string;
+  // A custom service is also a project: its id, to open it on the Projects page.
+  project?: string;
 }
 
 export interface MyServicesData {
@@ -77,7 +79,8 @@ export interface MyServicesData {
   planTotal?: number;
   unpriced?: string[];
   // Paid once, not each month (a logo designed for them), and what those come to.
-  oneTime?: { name: string; price: number; detail?: string; included?: string[]; addedAt?: string }[];
+  // A custom one is also a project: its id, and whether work on it has started.
+  oneTime?: { name: string; price: number; detail?: string; included?: string[]; addedAt?: string; project?: string; stage?: "new" | "in_progress" }[];
   // What the client asked for from the Services page.
   requests?: ServiceRequest[];
   oneTimeTotal?: number;
