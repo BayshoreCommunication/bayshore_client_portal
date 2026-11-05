@@ -45,7 +45,7 @@ const ItemNotes = ({ step, item, comments, asked, approved, name, onPosted }: Pr
     form.append("itemLabel", item.label);
     form.append("text", draft.trim());
     try {
-      const { ok, body } = await sendWithProgress("/api/onboarding/comments", form, () => undefined);
+      const { ok, body } = await sendWithProgress("/onboarding/me/comments", form, () => undefined);
       if (!ok || !body?.data) {
         setError(body?.message || "Couldn't send your reply. Please try again.");
         return;

@@ -4,8 +4,8 @@ import { auth } from "@/auth";
 import { BACKEND_API_URL } from "@/lib/backend";
 import type { MessagePage } from "@/component/messages/chat";
 
-// The client's conversation with the BayShore team (backend: /messages/me). Sending goes through
-// the upload route (app/api/messages/route.ts), since a message can carry files.
+// The client's conversation with the BayShore team (backend: /messages/me). Sending goes from
+// the browser straight to the backend (lib/sendToBackend.ts), since a message can carry files.
 
 const token = async () => (await auth())?.accessToken;
 

@@ -63,24 +63,17 @@ import RevisionHistory, { REVIEW_ANCHOR } from "./RevisionHistory";
 import DateTime from "./DateTime";
 import GroupPieces, { arrivalNotice, forgetPieces, nextWaiting, rememberPieces } from "./GroupPieces";
 import MessageBox from "./MessageBox";
+import { sendToBackend } from "@/lib/sendToBackend";
 
-// Sends feedback to the upload route, reporting progress (0–100) as files go up.
-const postFeedback = (id: string, form: FormData, onProgress: (percent: number) => void) =>
-  new Promise<{ status: number; body: ContentCommentResponse }>((resolve, reject) => {
-    const request = new XMLHttpRequest();
-    request.open("POST", `/api/content/${id}/comments`);
-    request.responseType = "json";
-    request.upload.onprogress = (event) => {
-      if (event.lengthComputable) onProgress(Math.round((event.loaded / event.total) * 100));
-    };
-    request.onload = () =>
-      resolve({
-        status: request.status,
-        body: (request.response as ContentCommentResponse | null) ?? { success: false, message: "The server sent an unexpected response." },
-      });
-    request.onerror = () => reject(new Error("Network error"));
-    request.send(form);
+// Sends feedback straight to the backend (POST /content/me/:id/comments), reporting progress
+// (0–100) as files go up.
+const postFeedback = async (id: string, form: FormData, onProgress: (percent: number) => void) => {
+  const { status, body } = await sendToBackend<ContentCommentResponse>("POST", `/content/me/${id}/comments`, form, {
+    onProgress,
+    refresh: ["/content", `/content/${id}`],
   });
+  return { status, body: body ?? { success: false, message: "The server sent an unexpected response." } };
+};
 
 // One piece the team sent: the files, the text, and the conversation. The client
 // approves it or asks for changes here, each in its own dialog — asking always goes with a

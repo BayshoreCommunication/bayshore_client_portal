@@ -152,7 +152,7 @@ export interface ContentItem {
   updatedAt: string;
 }
 
-// What POST /api/content/:id/comments (the upload route) answers with.
+// What POST /content/me/:id/comments answers with (sent from the browser: lib/sendToBackend.ts).
 export interface ContentCommentResponse {
   success: boolean;
   message: string;

@@ -25,7 +25,7 @@ const Messages = ({ initial }: { initial: MessagePage | null }) => {
     initial,
     load,
     matches: () => true,
-    postUrl: "/api/messages",
+    postPath: "/messages/me",
     onIncoming: (message) => {
       if (message.side === "team" && document.visibilityState === "visible") markRead();
     },

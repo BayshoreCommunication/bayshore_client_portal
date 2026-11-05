@@ -5,11 +5,12 @@ import { AnimatePresence, motion } from "framer-motion";
 import { CheckCircle2, FileText, Loader2, MessageSquare, Paperclip, Send, X } from "lucide-react";
 import type { OnboardingComment, OnboardingCommentFile } from "@/app/actions/onboarding";
 import { formatFileSize } from "@/component/projects/projectUi";
+import { sendToBackend } from "@/lib/sendToBackend";
 
 // Beside the onboarding form: comments on the step that is open — a question for the team, or a
 // note about an answer, with files if they like — and, under each, the team's replies from the
 // company portal. A comment with no reply shows on its own. Saved on the backend
-// (/onboarding/me/comments); a new one goes up through app/api/onboarding/comments.
+// (/onboarding/me/comments); a new one goes straight to the backend (lib/sendToBackend.ts).
 
 // At most this many files on one comment (backend: ONBOARDING_COMMENT_MAX_FILES).
 const MAX_FILES = 5;
@@ -31,27 +32,15 @@ export const timeOf = (iso: string) => {
     : at.toLocaleDateString("en-US", { month: "short", day: "numeric" });
 };
 
-// Sends a form, reporting how much of it has gone up (0–100) as it does.
-export const sendWithProgress = (url: string, form: FormData, onProgress: (percent: number) => void) =>
-  new Promise<{ ok: boolean; body: { data?: unknown; message?: string } | null }>((resolve, reject) => {
-    const request = new XMLHttpRequest();
-    request.open("POST", url);
-    request.upload.onprogress = (event) => {
-      if (event.lengthComputable) onProgress(Math.min(99, Math.round((event.loaded / event.total) * 100)));
-    };
-    request.onload = () => {
-      onProgress(100);
-      let body = null;
-      try {
-        body = JSON.parse(request.responseText);
-      } catch {
-        // Not JSON: said as a failure below.
-      }
-      resolve({ ok: request.status >= 200 && request.status < 300, body });
-    };
-    request.onerror = () => reject(new Error("network"));
-    request.send(form);
+// Sends a form straight to the backend (`path`, e.g. "/onboarding/me/comments"), reporting how
+// much of it has gone up (0–100) as it does.
+export const sendWithProgress = async (path: string, form: FormData, onProgress: (percent: number) => void) => {
+  const { status, body } = await sendToBackend<{ data?: unknown; message?: string }>("POST", path, form, {
+    onProgress: (percent) => onProgress(Math.min(99, percent)),
   });
+  onProgress(100);
+  return { ok: status >= 200 && status < 300, body };
+};
 
 const isImage = (file: { name: string; mimeType?: string; type?: string }) =>
   (file.mimeType ?? file.type ?? "").startsWith("image/") || /\.(png|jpe?g|gif|webp|svg|avif)$/i.test(file.name);
@@ -147,7 +136,7 @@ const StepComments = ({
     files.forEach((file) => form.append("files", file));
     const count = files.length;
     try {
-      const { ok, body } = await sendWithProgress("/api/onboarding/comments", form, () => undefined);
+      const { ok, body } = await sendWithProgress("/onboarding/me/comments", form, () => undefined);
       if (!ok || !body?.data) {
         setError(body?.message || "Couldn't post your comment. Please try again.");
         return;

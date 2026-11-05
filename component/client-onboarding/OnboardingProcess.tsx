@@ -10,6 +10,7 @@ import { poppins } from "@/component/shared/fonts";
 import StepComments from "./StepComments";
 import ItemNotes from "./ItemNotes";
 import { useRealtime, useRefreshing } from "@/lib/realtime";
+import { sendToBackend } from "@/lib/sendToBackend";
 import {
   onBuilder,
   hostOf,
@@ -1093,6 +1094,9 @@ const LogoItem = ({ form }: { form: Form }) => {
 
 // Where a social account's access stands, as the client sees it: still to give (Pending), given
 // and waiting for us to accept (Invited), in use (Connected), and checked by us (Verified).
+// What the backend answers an upload or a removal with: the list as it now stands.
+type MediaResponse = { message?: string; errors?: string[]; data?: { files: OnboardingFile[] } };
+
 type AccessStatus = "Pending" | "Invited" | "Connected" | "Verified";
 const ACCESS_STATUS: Record<AccessStatus, string> = {
   Pending: "border-[#fcd34d] bg-[#fffbeb] text-[#b45309]",
@@ -1368,7 +1372,7 @@ const AccountItem = ({ form, account, google }: { form: Form; account: Account; 
 };
 
 // Uploading photos or videos of one kind: pick or drop them, and they go straight to storage
-// (DigitalOcean Spaces, through app/api/onboarding/media) — there is nothing to save afterwards.
+// (DigitalOcean Spaces, sent straight to the backend) — there is nothing to save afterwards.
 // What is uploaded shows inside the same box, as a picture of each one, with a way to take it
 // back; the ones on their way up show there at once, dimmed, from the files on this device.
 const MediaUpload = ({ form, media }: { form: Form; media: Pick<Media, "id"> }) => {
@@ -1407,9 +1411,8 @@ const MediaUpload = ({ form, media }: { form: Form; media: Pick<Media, "id"> }) 
     try {
       const body = new FormData();
       for (const file of sending) body.append("files", file);
-      const response = await fetch(`/api/onboarding/media/${rule.kind}`, { method: "POST", body });
-      const result = await response.json().catch(() => null);
-      if (response.ok && Array.isArray(result?.data?.files)) {
+      const { status, body: result } = await sendToBackend<MediaResponse>("POST", `/onboarding/me/media/${rule.kind}`, body);
+      if (status >= 200 && status < 300 && Array.isArray(result?.data?.files)) {
         form.setFiles(media.id, result.data.files);
         form.say(sending.length === 1 ? "1 file uploaded." : `${sending.length} files uploaded.`);
       } else {
@@ -1427,9 +1430,8 @@ const MediaUpload = ({ form, media }: { form: Form; media: Pick<Media, "id"> }) 
     if (busy) return;
     setRemoving(file.url);
     try {
-      const response = await fetch(`/api/onboarding/media/${rule.kind}`, { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ url: file.url }) });
-      const result = await response.json().catch(() => null);
-      if (response.ok && Array.isArray(result?.data?.files)) form.setFiles(media.id, result.data.files);
+      const { status, body: result } = await sendToBackend<MediaResponse>("DELETE", `/onboarding/me/media/${rule.kind}`, { url: file.url });
+      if (status >= 200 && status < 300 && Array.isArray(result?.data?.files)) form.setFiles(media.id, result.data.files);
       else setProblems([result?.message ?? `Couldn't remove ${file.name}.`]);
     } catch {
       setProblems(["Network error. Please try again."]);

@@ -16,7 +16,7 @@ const ReportComments = ({ reportId }: { reportId: string }) => {
     initial: null,
     load,
     matches: (message) => message.report === reportId,
-    postUrl: "/api/messages",
+    postPath: "/messages/me",
     extra: { report: reportId },
   });
 

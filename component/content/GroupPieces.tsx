@@ -246,9 +246,14 @@ const GroupPieces = ({
           // buttons are always there.
           if (current) {
             return (
-              <div key={piece._id} aria-current="page" className={`${tileClass} border-[#2f5fd8] shadow-[0_0_0_3px_rgba(47,95,216,0.14)]`}>
+              <div
+                key={piece._id}
+                aria-current="page"
+                className={`${tileClass} flex-wrap border-[#2f5fd8] shadow-[0_0_0_3px_rgba(47,95,216,0.14)]`}
+              >
                 {face}
-                {buttons ? <span className="flex shrink-0 items-center gap-1.5">{buttons}</span> : null}
+                {/* On a row of their own under the piece, so its title and status keep their room. */}
+                {buttons ? <span className="flex basis-full flex-wrap items-center gap-1.5 border-t border-[#eef0f3] pt-2.5">{buttons}</span> : null}
               </div>
             );
           }

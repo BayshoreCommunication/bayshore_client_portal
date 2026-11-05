@@ -349,8 +349,8 @@ export async function deleteOnboardingAction(): Promise<OnboardingActionResult<n
 // ── Comments on the form ─────────────────────────────────────────────────────
 
 // A comment the client wrote on a step of their form, and the team's replies to it (backend:
-// models/onboardingComment.model.ts). Posting one carries files, so it goes through the upload
-// route (app/api/onboarding/comments/route.ts), not a server action.
+// models/onboardingComment.model.ts). Posting one carries files, so it goes from the browser
+// straight to the backend (lib/sendToBackend.ts), not through a server action.
 export interface OnboardingCommentFile {
   url: string;
   name: string;

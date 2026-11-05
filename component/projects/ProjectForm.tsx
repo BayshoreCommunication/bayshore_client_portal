@@ -12,6 +12,7 @@ import {
   type ProjectPriority,
 } from "@/app/actions/project";
 import { poppins } from "@/component/shared/fonts";
+import { sendToBackend } from "@/lib/sendToBackend";
 import {
   PROJECT_DESCRIPTION_LIMIT,
   PROJECT_FILE_ACCEPT,
@@ -40,13 +41,12 @@ const star = <span className="text-[#dc2626]">*</span>;
 
 type Outcome = { ok: boolean; error?: string; fieldErrors?: string[] };
 
-// New files travel as a multipart form through the /api/projects route handlers —
-// a server action caps the request at 1MB, far below one 25MB attachment.
-const sendWithFiles = async (url: string, method: "POST" | "PATCH", form: FormData): Promise<Outcome> => {
+// New files go straight to the backend as a multipart form (lib/sendToBackend.ts) — a server
+// action caps the request at 1MB, and the host this app runs on at 4.5MB.
+const sendWithFiles = async (path: string, method: "POST" | "PATCH", form: FormData, refresh: string[]): Promise<Outcome> => {
   try {
-    const response = await fetch(url, { method, body: form });
-    const body = await response.json().catch(() => null);
-    if (response.ok) return { ok: true };
+    const { status, body } = await sendToBackend<{ message?: unknown; errors?: unknown }>(method, path, form, { refresh });
+    if (status >= 200 && status < 300) return { ok: true };
     return {
       ok: false,
       error: typeof body?.message === "string" ? body.message : "Something went wrong.",
@@ -185,8 +185,8 @@ const ProjectForm = ({ project }: { project?: MyProject }) => {
       for (const url of removedUrls) form.append("removeFiles", url);
       for (const file of newFiles) form.append("files", file);
       outcome = project
-        ? await sendWithFiles(`/api/projects/${project._id}`, "PATCH", form)
-        : await sendWithFiles("/api/projects", "POST", form);
+        ? await sendWithFiles(`/projects/me/${project._id}`, "PATCH", form, ["/projects", `/projects/${project._id}`])
+        : await sendWithFiles("/projects/me", "POST", form, ["/projects"]);
     } else {
       outcome = project
         ? await updateMyProjectAction(project._id, { ...fields, removeFiles: removedUrls })
@@ -201,7 +201,7 @@ const ProjectForm = ({ project }: { project?: MyProject }) => {
     }
 
     router.push(backHref);
-    // The route handler's upload isn't a navigation, so ask for the fresh list / details.
+    // The upload isn't a navigation, so ask for the fresh list / details.
     router.refresh();
   };
 

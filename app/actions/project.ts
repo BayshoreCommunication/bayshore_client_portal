@@ -166,9 +166,8 @@ export async function getMyProjectAction(id: string): Promise<ProjectActionResul
   }
 }
 
-// Opens a project without files. To attach files, post a multipart form to
-// /api/projects instead (see app/api/projects/route.ts): a server action caps the
-// request body at 1MB, so uploads go through that route handler.
+// Opens a project without files. With files, the browser posts the form straight to the
+// backend instead (lib/sendToBackend.ts): a server action caps the request body at 1MB.
 export async function createMyProjectAction(input: MyProjectInput): Promise<ProjectActionResult<MyProject>> {
   const accessToken = await token();
   if (!accessToken) return NOT_SIGNED_IN;
@@ -190,8 +189,8 @@ export async function createMyProjectAction(input: MyProjectInput): Promise<Proj
 }
 
 // Changes a project's details and drops attached files (`removeFiles`). Allowed until
-// the project is completed (409 after that). To add files, send a multipart PATCH to
-// /api/projects/[id] instead (see app/api/projects/[id]/route.ts).
+// the project is completed (409 after that). To add files, the browser sends the
+// form straight to the backend (lib/sendToBackend.ts).
 export async function updateMyProjectAction(
   id: string,
   input: MyProjectUpdateInput,
