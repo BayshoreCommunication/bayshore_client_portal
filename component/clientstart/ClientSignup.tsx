@@ -646,7 +646,13 @@ const TagInput = ({
 }) => {
   const [draft, setDraft] = useState("");
   const input = useRef<HTMLInputElement>(null);
+  const box = useRef<HTMLDivElement>(null);
   const left = ideas.filter((idea) => !values.includes(idea));
+
+  // A long list scrolls inside its box; one just added — and the field to type the next — stay in view.
+  useEffect(() => {
+    if (box.current) box.current.scrollTop = box.current.scrollHeight;
+  }, [values.length]);
 
   const add = (text: string) => {
     const fresh = text.split(",").map((item) => item.trim()).filter(Boolean);
@@ -659,11 +665,20 @@ const TagInput = ({
 
   return (
     <>
+      {values.length > 1 ? (
+        <div className="flex items-center justify-between gap-2 text-[11.5px] text-[#5b6a72]">
+          <span>{values.length} added</span>
+          <button type="button" onClick={() => onChange(() => [])} className={`cursor-pointer font-medium hover:text-[#b42318] ${focusRing}`}>
+            Clear all
+          </button>
+        </div>
+      ) : null}
       <div
+        ref={box}
         onClick={(event) => {
           if (event.target === event.currentTarget) input.current?.focus();
         }}
-        className="flex min-h-11 flex-wrap content-start gap-1.5 rounded-[9px] border border-[#cdd6d1] bg-white p-1.5 transition-[border-color,box-shadow] duration-150 group-data-[invalid]/field:border-[#b42318]! focus-within:border-[#b8892f] focus-within:ring-3 focus-within:ring-[#f7f0e1]"
+        className="flex max-h-52 min-h-11 w-full min-w-0 flex-wrap content-start gap-1.5 overflow-y-auto overscroll-contain rounded-[9px] border border-[#cdd6d1] bg-white p-1.5 transition-[border-color,box-shadow] duration-150 group-data-[invalid]/field:border-[#b42318]! focus-within:border-[#b8892f] focus-within:ring-3 focus-within:ring-[#f7f0e1] max-sm:max-h-44"
       >
         <AnimatePresence initial={false}>
           {values.map((value) => (
@@ -674,10 +689,10 @@ const TagInput = ({
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.8 }}
               transition={{ duration: 0.15 }}
-              className={`inline-flex items-center gap-1 rounded-md py-0.75 pr-1 pl-2.25 text-[13px] font-medium ${gold ? "border border-[#ead9b2] bg-[#f7f0e1] text-[#7a5a17]" : "bg-[#16212a] text-white"}`}
+              className={`inline-flex max-w-full min-w-0 items-start gap-1 rounded-md py-0.75 pr-1 pl-2.25 text-[13px] leading-[1.45] font-medium ${gold ? "border border-[#ead9b2] bg-[#f7f0e1] text-[#7a5a17]" : "bg-[#16212a] text-white"}`}
             >
-              <span>{value}</span>
-              <button type="button" aria-label={`Remove ${value}`} onClick={() => onChange((list) => list.filter((item) => item !== value))} className={`cursor-pointer px-1 text-[15px] leading-none opacity-60 hover:opacity-100 ${focusRing}`}>
+              <span className="min-w-0 [overflow-wrap:anywhere] break-words">{value}</span>
+              <button type="button" aria-label={`Remove ${value}`} onClick={() => onChange((list) => list.filter((item) => item !== value))} className={`flex-none cursor-pointer px-1 text-[15px] leading-[1.3] opacity-60 hover:opacity-100 ${focusRing}`}>
                 ×
               </button>
             </motion.span>
@@ -697,14 +712,14 @@ const TagInput = ({
               addDraft();
             } else if (event.key === "Backspace" && !draft && values.length) onChange((list) => list.slice(0, -1));
           }}
-          className="min-h-7.5 min-w-27.5 flex-1 bg-transparent px-1.5 py-1 outline-none"
+          className="min-h-7.5 w-0 min-w-27.5 flex-1 bg-transparent px-1.5 py-1 outline-none"
         />
       </div>
       {left.length ? (
-        <div className="flex flex-wrap items-center gap-1.5">
+        <div className="flex min-w-0 flex-wrap items-center gap-1.5">
           <span className="text-[12px] text-[#5b6a72]">Add:</span>
           {left.map((idea) => (
-            <button key={idea} type="button" onClick={() => add(idea)} className={`cursor-pointer rounded-full border border-dashed border-[#cdd6d1] px-2.5 py-0.75 text-[12px] text-[#5b6a72] transition-colors duration-150 hover:border-[#b8892f] hover:text-[#7a5a17] ${focusRing}`}>
+            <button key={idea} type="button" onClick={() => add(idea)} title={idea} className={`max-w-full cursor-pointer truncate rounded-full border border-dashed border-[#cdd6d1] px-2.5 py-0.75 text-[12px] text-[#5b6a72] transition-colors duration-150 hover:border-[#b8892f] hover:text-[#7a5a17] ${focusRing}`}>
               {idea}
             </button>
           ))}
@@ -1072,8 +1087,8 @@ const BusinessStep = ({ flow }: { flow: Flow }) => {
               <SectionHead icon="target" title="What you offer, and where">
                 Two separate lists. Type an item and press Enter to add it.
               </SectionHead>
-              <div className="grid grid-cols-2 gap-4 max-[700px]:grid-cols-1">
-                <Field error={errors["b-services"]} className="rounded-xl border border-[#e1e7e3] bg-[#f8faf9] p-3.5">
+              <div className="grid grid-cols-[repeat(2,minmax(0,1fr))] items-start gap-4 max-[700px]:grid-cols-1">
+                <Field error={errors["b-services"]} className="rounded-xl border border-[#e1e7e3] bg-[#f8faf9] p-3.5 max-sm:p-3">
                   <span className="flex items-center gap-2 text-[13.5px] font-semibold">
                     <Icon name="briefcase" className="size-4.5 text-[#7a5a17]" />
                     <label htmlFor="b-services-in">Services you offer</label>
@@ -1081,7 +1096,7 @@ const BusinessStep = ({ flow }: { flow: Flow }) => {
                   <p className={helpClass}>The work you do for clients.</p>
                   <TagInput id="b-services-in" values={s.services} onChange={(change) => flow.patch((now) => ({ services: change(now.services) }))} ideas={SERVICE_IDEAS} placeholder="e.g. Car accidents" />
                 </Field>
-                <Field error={errors["b-areas"]} className="rounded-xl border border-[#e1e7e3] bg-[#f8faf9] p-3.5">
+                <Field error={errors["b-areas"]} className="rounded-xl border border-[#e1e7e3] bg-[#f8faf9] p-3.5 max-sm:p-3">
                   <span className="flex items-center gap-2 text-[13.5px] font-semibold">
                     <Icon name="pin" className="size-4.5 text-[#7a5a17]" />
                     <label htmlFor="b-areas-in">Areas you serve</label>

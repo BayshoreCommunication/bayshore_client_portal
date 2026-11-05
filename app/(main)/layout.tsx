@@ -2,7 +2,7 @@ import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import "../globals.css";
 import { auth } from "@/auth";
-import { getMyPortalMenusAction } from "@/app/actions/portal";
+import { getMyPortalStateAction } from "@/app/actions/portal";
 import AccountWatch from "@/component/layout/AccountWatch";
 import PortalGuard from "@/component/layout/PortalGuard";
 import { firstShownPage, isPageShown } from "@/component/layout/portalPages";
@@ -28,8 +28,10 @@ const MainLayout = async ({ children }: { children: React.ReactNode }) => {
   }
 
   const name = session.user.name ?? "Client";
-  // Which pages their team has left on for them (null: couldn't be read, so all of them).
-  const menus = await getMyPortalMenusAction();
+  // Which pages their team has left on for them (null: couldn't be read, so all of them) — and,
+  // from the same answer, whether their login is still there: one removed with its client, or
+  // switched off, is signed out at once (AccountWatch).
+  const { menus, account } = await getMyPortalStateAction();
   // A page that isn't one of them can't be opened by its address either: they land on the
   // first page they are shown. (proxy.ts passes the path along; a layout can't see it itself.)
   const pathname = (await headers()).get("x-pathname");
@@ -37,7 +39,7 @@ const MainLayout = async ({ children }: { children: React.ReactNode }) => {
 
   return (
     <SessionUserProvider user={{ name, initials: initialsFromName(name) }}>
-      <AccountWatch />
+      <AccountWatch gone={account === "ok" ? null : account} />
       <div className="flex min-h-screen">
         <Sidebar menus={menus} />
         {/* No overflow here on purpose: the window is what scrolls, and an overflow container that

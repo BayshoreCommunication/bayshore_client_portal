@@ -13,6 +13,14 @@ import { ButtonArrow, suButtonClass, suFocusRing, suInputClass, suInputState } f
 const SigninForm = () => {
   const searchParams = useSearchParams();
   const callbackUrl = searchParams.get("callbackUrl") ?? "/dashboard";
+  // Signed out because the account was deleted or switched off (AccountWatch).
+  const reason = searchParams.get("reason");
+  const gone =
+    reason === "removed"
+      ? "Your account has been removed, so you've been signed out. Please contact BayShore if you think this is a mistake."
+      : reason === "inactive"
+        ? "Your account isn't active right now, so you've been signed out. Please contact your account manager."
+        : null;
   const [state, action, pending] = useActionState<SignInState, FormData>(signInAction, undefined);
   const [identifier, setIdentifier] = useState("");
   const [password, setPassword] = useState("");
@@ -24,6 +32,11 @@ const SigninForm = () => {
     <>
       <h2 className={`${fraunces.className} text-[23px] leading-[1.2] font-semibold text-[#0f2a3d]`}>Welcome back</h2>
       <p className="mt-1.5 mb-5.5 text-[14px] text-[#667280]">Log in to your BayShore client account.</p>
+      {gone ? (
+        <div role="alert" className="mb-4.5 rounded-xl border border-[#fecaca] bg-[#fef2f2] px-4 py-3 text-[13px] leading-relaxed text-[#991b1b]">
+          {gone}
+        </div>
+      ) : null}
 
       <form action={action} className="grid gap-4">
         <input type="hidden" name="callbackUrl" value={callbackUrl} />

@@ -176,3 +176,9 @@ export async function signOutAction() {
 
   await signOut({ redirectTo: "/sign-in" });
 }
+
+// Signed out because the account is gone (the client was deleted) or switched off: the sign-in
+// page then says so.
+export async function signOutGoneAction(reason: "removed" | "inactive") {
+  await signOut({ redirectTo: `/sign-in?reason=${reason}` });
+}
