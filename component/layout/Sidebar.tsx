@@ -4,6 +4,7 @@ import {
   Bell,
   Briefcase,
   Calendar,
+  ClipboardCheck,
   CreditCard,
   FileText,
   Layers,
@@ -40,7 +41,7 @@ const NAV_SECTIONS: NavSection[] = [
     heading: "Overview",
     items: [
       { key: "dashboard", label: "Dashboard", icon: LayoutDashboard, href: "/dashboard" },
-      { key: "onboarding", label: "Onboarding", icon: LayoutDashboard, href: "/onboarding" },
+      { key: "onboarding", label: "Onboarding", icon: ClipboardCheck, href: "/onboarding" },
       { key: "reports", label: "Reports", icon: FileText, href: "/reports" },
       { key: "content", label: "Content", icon: Layers, href: "/content" },
       { key: "leads", label: "Leads", icon: UserPlus, href: "/leads" },

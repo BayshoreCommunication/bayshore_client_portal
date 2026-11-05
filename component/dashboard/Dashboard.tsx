@@ -16,8 +16,10 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { poppins } from "@/component/shared/fonts";
-import { pendingItems, upcomingMeetings, type PendingKind, type PendingStatus } from "./data";
-import type { DashboardModel } from "./dashboardData";
+import type { ChannelKey, DashboardCard, DashboardChannel, DashboardModel, PendingKind } from "./dashboardData";
+import MeetingRows from "./MeetingRows";
+
+type PendingStatus = "waiting" | "revision" | "approved";
 
 // Each pending piece's icon tile, and the pill for where it stands.
 const PENDING_ICONS: Record<PendingKind, { icon: LucideIcon; background: string; color: string }> = {
@@ -77,27 +79,15 @@ const SideCard = ({
   </div>
 );
 
-// The four headline cards — sample figures for now (the design), each in its own color.
+// The four headline cards: how each looks. Their figures come from the dashboard's data.
 type TrendDirection = "up" | "down" | "flat";
-const SAMPLE_CARDS: {
-  title: string;
-  value: string;
-  change: { percent: number; direction: TrendDirection } | null;
-  icon: LucideIcon;
-  color: string;
-  background: string;
-}[] = [
-  { title: "TOTAL LEADS COLLECTED", value: "84", change: { percent: 12, direction: "up" }, icon: Users, color: "#2f5fd8", background: "#dce4f3" },
-  { title: "GMB IMPRESSIONS", value: "3,412", change: { percent: 7.8, direction: "up" }, icon: BarChart3, color: "#16a34a", background: "#d6ebdc" },
-  { title: "WEBSITE CLICKS", value: "612", change: { percent: 4.1, direction: "up" }, icon: MousePointerClick, color: "#4f46e5", background: "#e0e0f3" },
-  { title: "SOCIAL ENGAGEMENT", value: "9,840", change: { percent: 2.6, direction: "down" }, icon: Heart, color: "#dc2626", background: "#f6dcdf" },
-];
-
-// "September 2026" / "August" / "Aug" — this month and the one before, for the sample text.
-const monthName = (offset: number, options: Intl.DateTimeFormatOptions) => {
-  const now = new Date();
-  return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + offset, 1)).toLocaleDateString("en-US", { ...options, timeZone: "UTC" });
+const CARD_LOOK: Record<DashboardCard["key"], { icon: LucideIcon; color: string; background: string }> = {
+  leads: { icon: Users, color: "#2f5fd8", background: "#dce4f3" },
+  gmb: { icon: BarChart3, color: "#16a34a", background: "#d6ebdc" },
+  clicks: { icon: MousePointerClick, color: "#4f46e5", background: "#e0e0f3" },
+  social: { icon: Heart, color: "#dc2626", background: "#f6dcdf" },
 };
+
 
 // ── Performance by Channel — sample figures for now (the design) ─────────────
 
@@ -129,119 +119,16 @@ const LinkedinIcon: IconType = ({ size = 20 }) => (
 const GlobeIcon: IconType = ({ size = 20 }) => <Globe size={size} strokeWidth={1.75} />;
 const MapPinIcon: IconType = ({ size = 20 }) => <MapPin size={size} strokeWidth={1.75} />;
 
-type SampleChannel = {
-  name: string;
-  sub: string;
-  icon: IconType;
-  color: string;
-  // Lighter bars for the earlier months, and the icon tile.
-  tint: string;
-  tile: string;
-  headline: number;
-  headlineLabel: string;
-  // Six months, oldest first; the last is this month.
-  bars: number[];
-  metrics: { label: string; value: string; change?: { percent: number; direction: "up" | "down" } }[];
+// Each channel's card: its name, icon and colors. The figures come from the published reports.
+type ChannelLook = { name: string; sub: string; icon: IconType; color: string; tint: string; tile: string };
+const CHANNEL_LOOK: Record<ChannelKey, ChannelLook> = {
+  website: { name: "Website & SEO", sub: "Organic search performance", icon: GlobeIcon, color: "#eba445", tint: "#ecd3ae", tile: "#f5e3c9" },
+  gmb: { name: "Google Business Profile", sub: "Local search & maps", icon: MapPinIcon, color: "#16a34a", tint: "#bfe3cb", tile: "#d8efe0" },
+  facebook: { name: "Facebook", sub: "Page reach", icon: FacebookIcon, color: "#1877f2", tint: "#c3d9f7", tile: "#dbe8fb" },
+  instagram: { name: "Instagram", sub: "Posts, reels & stories", icon: InstagramIcon, color: "#e1306c", tint: "#f5c3d5", tile: "#fbdde8" },
+  twitter: { name: "Twitter / X", sub: "Posts & conversations", icon: XIcon, color: "#1f2937", tint: "#cfd4db", tile: "#e3e6ea" },
+  linkedin: { name: "LinkedIn", sub: "Company page activity", icon: LinkedinIcon, color: "#0a66c2", tint: "#bcd5ee", tile: "#d8e6f5" },
 };
-
-const SAMPLE_CHANNELS: SampleChannel[] = [
-  {
-    name: "Website & SEO",
-    sub: "Organic search performance",
-    icon: GlobeIcon,
-    color: "#eba445",
-    tint: "#ecd3ae",
-    tile: "#f5e3c9",
-    headline: 71240,
-    headlineLabel: "Impressions",
-    bars: [21800, 33400, 40100, 50600, 60900, 71240],
-    metrics: [
-      { label: "CLICKS", value: "612", change: { percent: 4.1, direction: "up" } },
-      { label: "BACKLINKS", value: "214", change: { percent: 8.1, direction: "up" } },
-      { label: "LEADS FWD", value: "22", change: { percent: 22.2, direction: "up" } },
-    ],
-  },
-  {
-    name: "Google Business Profile",
-    sub: "Local search & maps",
-    icon: MapPinIcon,
-    color: "#16a34a",
-    tint: "#bfe3cb",
-    tile: "#d8efe0",
-    headline: 3412,
-    headlineLabel: "Impressions",
-    bars: [2140, 2480, 2710, 2930, 3165, 3412],
-    metrics: [
-      { label: "CALLS", value: "48", change: { percent: 9.1, direction: "up" } },
-      { label: "DIRECTIONS", value: "126", change: { percent: 5.0, direction: "up" } },
-      { label: "SITE CLICKS", value: "87", change: { percent: 1.3, direction: "down" } },
-    ],
-  },
-  {
-    name: "Facebook",
-    sub: "Page reach & engagement",
-    icon: FacebookIcon,
-    color: "#1877f2",
-    tint: "#c3d9f7",
-    tile: "#dbe8fb",
-    headline: 4210,
-    headlineLabel: "Reach",
-    bars: [3050, 3320, 3480, 3910, 4380, 4210],
-    metrics: [
-      { label: "POSTS", value: "12" },
-      { label: "ENGAGEMENT", value: "386", change: { percent: 6.2, direction: "up" } },
-      { label: "FOLLOWERS", value: "2,140", change: { percent: 1.8, direction: "up" } },
-    ],
-  },
-  {
-    name: "Instagram",
-    sub: "Posts, reels & stories",
-    icon: InstagramIcon,
-    color: "#e1306c",
-    tint: "#f5c3d5",
-    tile: "#fbdde8",
-    headline: 3180,
-    headlineLabel: "Reach",
-    bars: [1720, 2040, 2210, 2560, 2890, 3180],
-    metrics: [
-      { label: "REEL VIEWS", value: "5,420", change: { percent: 14.3, direction: "up" } },
-      { label: "LIKES", value: "842", change: { percent: 3.9, direction: "up" } },
-      { label: "FOLLOWERS", value: "1,560", change: { percent: 2.4, direction: "up" } },
-    ],
-  },
-  {
-    name: "Twitter / X",
-    sub: "Posts & conversations",
-    icon: XIcon,
-    color: "#1f2937",
-    tint: "#cfd4db",
-    tile: "#e3e6ea",
-    headline: 1240,
-    headlineLabel: "Impressions",
-    bars: [980, 1120, 1060, 1210, 1295, 1240],
-    metrics: [
-      { label: "POSTS", value: "18" },
-      { label: "ENGAGEMENTS", value: "96", change: { percent: 4.0, direction: "down" } },
-      { label: "FOLLOWERS", value: "612", change: { percent: 0.8, direction: "up" } },
-    ],
-  },
-  {
-    name: "LinkedIn",
-    sub: "Company page activity",
-    icon: LinkedinIcon,
-    color: "#0a66c2",
-    tint: "#bcd5ee",
-    tile: "#d8e6f5",
-    headline: 1210,
-    headlineLabel: "Reach",
-    bars: [640, 720, 810, 930, 1085, 1210],
-    metrics: [
-      { label: "POSTS", value: "6" },
-      { label: "CLICKS", value: "74", change: { percent: 11.5, direction: "up" } },
-      { label: "FOLLOWERS", value: "438", change: { percent: 3.1, direction: "up" } },
-    ],
-  },
-];
 
 // 71240 → "71,240"; axis ticks → "80K".
 const formatNumber = (value: number) => value.toLocaleString("en-US");
@@ -255,10 +142,12 @@ const niceMax = (value: number) => {
   return step * 4;
 };
 
-const ChannelCard = ({ channel }: { channel: SampleChannel }) => {
-  const top = niceMax(Math.max(...channel.bars));
+const ChannelCard = ({ channel: data }: { channel: DashboardChannel }) => {
+  const channel = { ...CHANNEL_LOOK[data.key], ...data };
+  const empty = data.headline === null || !data.bars.some((bar) => bar.value > 0);
+  const top = niceMax(Math.max(1, ...data.bars.map((bar) => bar.value)));
   const ticks = [4, 3, 2, 1, 0].map((step) => (top / 4) * step);
-  const months = [-5, -4, -3, -2, -1, 0].map((offset) => monthName(offset, { month: "short" }));
+  const months = data.bars.map((bar) => bar.label);
 
   return (
     <div className="rounded-2xl border border-[#e6e8eb] bg-white px-5 pt-5 pb-5 shadow-[0_2px_6px_rgba(15,23,42,0.05)]">
@@ -273,7 +162,7 @@ const ChannelCard = ({ channel }: { channel: SampleChannel }) => {
           </div>
         </div>
         <div className="shrink-0 text-right">
-          <div className="text-[24px] leading-none font-bold text-[#0b0c24]">{formatNumber(channel.headline)}</div>
+          <div className="text-[24px] leading-none font-bold text-[#0b0c24]">{channel.headline === null ? "—" : formatNumber(channel.headline)}</div>
           <div className="mt-1 text-[11.5px] text-[#6b7280]">{channel.headlineLabel}</div>
         </div>
       </div>
@@ -292,25 +181,31 @@ const ChannelCard = ({ channel }: { channel: SampleChannel }) => {
             {ticks.map((tick, index) => (
               <span key={tick} className="absolute inset-x-0 border-t border-[#f0f1f3]" style={{ top: `${(index / 4) * 100}%` }} />
             ))}
-            <div className="absolute inset-0 flex items-end gap-2.5">
-              {channel.bars.map((value, index) => {
-                const current = index === channel.bars.length - 1;
-                return (
-                  <div
-                    key={months[index]}
-                    title={`${months[index]}: ${formatNumber(value)}`}
-                    className="flex-1 rounded-t-[3px]"
-                    style={{ height: `${(value / top) * 100}%`, background: current ? channel.color : channel.tint }}
-                  />
-                );
-              })}
-            </div>
+            {empty ? (
+              <div className="absolute inset-0 grid place-items-center text-center text-[11.5px] text-[#9ca3af]">
+                No figures yet — they show here once a report includes them.
+              </div>
+            ) : (
+              <div className="absolute inset-0 flex items-end gap-2.5">
+                {data.bars.map((bar, index) => {
+                  const current = index === data.bars.length - 1;
+                  return (
+                    <div
+                      key={`${bar.label}-${index}`}
+                      title={`${bar.label}: ${formatNumber(bar.value)}`}
+                      className="flex-1 rounded-t-[3px]"
+                      style={{ height: `${(bar.value / top) * 100}%`, background: current ? channel.color : channel.tint }}
+                    />
+                  );
+                })}
+              </div>
+            )}
           </div>
           <div className="mt-2 flex gap-2.5">
             {months.map((month, index) => {
               const current = index === months.length - 1;
               return (
-                <span key={month} className={`flex flex-1 items-center justify-center gap-1.5 text-[10.5px] ${current ? "text-[#0b0c24]" : "text-[#6b7280]"}`}>
+                <span key={`${month}-${index}`} className={`flex flex-1 items-center justify-center gap-1.5 text-[10.5px] ${current ? "text-[#0b0c24]" : "text-[#6b7280]"}`}>
                   <span className="h-1.5 w-1.5 rounded-full" style={{ background: current ? channel.color : channel.tint }} />
                   {month}
                 </span>
@@ -326,7 +221,7 @@ const ChannelCard = ({ channel }: { channel: SampleChannel }) => {
             <div className="truncate text-[11.5px] text-[#4b5260]">{metric.label}</div>
             <div className="mt-1 flex items-center gap-2.5">
               <span className="text-[20px] leading-none font-bold text-[#0b0c24]">{metric.value}</span>
-              {metric.change ? (
+              {metric.change && metric.change.direction !== "flat" ? (
                 <span
                   className={`inline-flex items-center gap-1.5 text-[12.5px] font-medium ${
                     metric.change.direction === "up" ? "text-[#16a34a]" : "text-[#e11d2e]"
@@ -368,18 +263,19 @@ const MetricTrend = ({ change, note }: { change: { percent: number; direction: T
 };
 
 const Dashboard = ({ name, model, error }: { name: string; model: DashboardModel | null; error?: string }) => {
-  // Everything not approved yet: waiting for approval, or sent back for a revision.
-  const awaitingApproval = pendingItems.filter((item) => item.status !== "approved");
-  const needDecision = awaitingApproval.length;
+  // What waits on them: pieces sent for their approval, and those they asked to be changed.
+  const awaitingApproval = model?.content.items ?? [];
+  const needDecision = model?.content.needDecision ?? 0;
+  const meetings = model?.meetings.items ?? [];
   return (
     <>
       <div className={`${poppins.className} mt-1.5 flex items-start justify-between`}>
         <div>
           <div className="text-[30px] leading-tight font-bold tracking-[-0.2px] text-[#0b0c24]">Welcome back, {name}</div>
           <div className="mt-1.5 text-[13px] text-[#4b5563]">
-            {model
+            {model?.period
               ? `Here's how your marketing performed in ${model.period}${model.comparedWith ? `, compared to ${model.comparedWith}` : ""}.`
-              : `Here's how your marketing performed in ${monthName(0, { month: "long", year: "numeric" })} so far, compared to ${monthName(-1, { month: "long" })}.`}
+              : "Your figures show here once your first report is published."}
           </div>
         </div>
       </div>
@@ -391,8 +287,10 @@ const Dashboard = ({ name, model, error }: { name: string; model: DashboardModel
       ) : null}
 
       <div className={`${poppins.className} grid grid-cols-4 gap-4`}>
-        {SAMPLE_CARDS.map((card) => (
-          <div className="rounded-xl border border-[#e6e8eb] bg-white px-4 pt-3.5 pb-4.5 shadow-[0_2px_6px_rgba(15,23,42,0.05)]" key={card.title}>
+        {(model?.cards ?? []).map((data) => {
+          const card = { ...CARD_LOOK[data.key], ...data };
+          return (
+          <div className="rounded-xl border border-[#e6e8eb] bg-white px-4 pt-3.5 pb-4.5 shadow-[0_2px_6px_rgba(15,23,42,0.05)]" key={card.key}>
             <div className="mb-5 flex items-center gap-3">
               <span
                 className="flex h-8.5 w-8.5 shrink-0 items-center justify-center rounded-lg border"
@@ -407,15 +305,16 @@ const Dashboard = ({ name, model, error }: { name: string; model: DashboardModel
             </div>
             <div className="flex items-end justify-between gap-2">
               <span className="text-[34px] leading-none font-semibold tracking-[-0.3px] text-[#0a0a0f]">{card.value}</span>
-              <MetricTrend change={card.change} note={monthName(-1, { month: "short" })} />
+              <MetricTrend change={card.change} note={card.note} />
             </div>
           </div>
-        ))}
+          );
+        })}
       </div>
 
       <div className="mt-1 flex items-center justify-between">
         <div className="text-base font-bold text-[#0d1e2c]">Performance by Channel</div>
-        {model ? (
+        {model?.latestId ? (
           <Link
             href={`/reports/${model.latestId}`}
             className="inline-flex items-center gap-1 text-[12.5px] font-semibold text-[#2563eb] hover:underline"
@@ -427,8 +326,8 @@ const Dashboard = ({ name, model, error }: { name: string; model: DashboardModel
 
       <div className="grid grid-cols-[minmax(0,2.7fr)_minmax(300px,1fr)] items-start gap-5">
         <div className="grid grid-cols-2 gap-4">
-          {SAMPLE_CHANNELS.map((channel) => (
-            <ChannelCard key={channel.name} channel={channel} />
+          {(model?.channels ?? []).map((channel) => (
+            <ChannelCard key={channel.key} channel={channel} />
           ))}
         </div>
 
@@ -438,17 +337,18 @@ const Dashboard = ({ name, model, error }: { name: string; model: DashboardModel
             iconColor="#d97706"
             iconBackground="#f8e4c6"
             title="Content for approval"
-            sub={`${needDecision} items need a decision`}
+            sub={needDecision ? `${needDecision} ${needDecision === 1 ? "item needs" : "items need"} a decision` : "Nothing waiting on you"}
             count={needDecision}
             footer={{ href: "/content", label: `Review All (${needDecision})` }}
           >
+            {awaitingApproval.length ? null : <p className="px-2 py-3 text-[12px] text-[#9ca3af]">You&apos;re all caught up — new content shows here when it&apos;s sent for your approval.</p>}
             {awaitingApproval.map((item) => {
               const tile = PENDING_ICONS[item.kind];
               const pill = PENDING_PILLS[item.status];
               return (
                 <Link
-                  href="/content"
-                  key={item.title}
+                  href={`/content/${item.id}`}
+                  key={item.id}
                   className="flex items-center gap-3 rounded-xl px-2 py-2.5 text-inherit no-underline hover:bg-[#f7f8fa]"
                 >
                   <span
@@ -481,20 +381,9 @@ const Dashboard = ({ name, model, error }: { name: string; model: DashboardModel
             iconBackground="#dce4f3"
             title="Upcoming Meetings"
             sub="With your account manager"
-            footer={{ href: "/calendar", label: `View All (${upcomingMeetings.length})` }}
+            footer={{ href: "/calendar", label: meetings.length ? `View All (${meetings.length})` : "Open calendar" }}
           >
-            {upcomingMeetings.map((meeting) => (
-              <div className="flex items-center gap-3 rounded-xl px-2 py-2.5" key={`${meeting.day}-${meeting.title}`}>
-                <span className="flex h-10 w-10 shrink-0 flex-col items-center justify-center rounded-xl border border-[#eceef1] bg-[#f7f8fa]">
-                  <span className="text-[9px] leading-none font-semibold text-[#dc2626]">{meeting.month}</span>
-                  <span className="mt-0.5 text-[15px] leading-none font-bold text-[#0b0c24]">{meeting.day}</span>
-                </span>
-                <span className="min-w-0">
-                  <span className="block truncate text-[12.5px] font-bold text-[#0b0c24]">{meeting.title}</span>
-                  <span className="mt-0.5 block truncate text-[11px] text-[#6b7280]">{meeting.sub}</span>
-                </span>
-              </div>
-            ))}
+            {meetings.length ? <MeetingRows meetings={meetings} /> : <p className="px-2 py-3 text-[12px] text-[#9ca3af]">No meetings booked in the next two months.</p>}
           </SideCard>
         </div>
       </div>

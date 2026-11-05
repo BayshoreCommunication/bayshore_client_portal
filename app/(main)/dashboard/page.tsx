@@ -1,18 +1,16 @@
 import { auth } from "@/auth";
-import { listMyReportsAction } from "@/app/actions/reports";
+import { getMyDashboardAction } from "@/app/actions/dashboard";
 import Dashboard from "@/component/dashboard/Dashboard";
 import { buildDashboard } from "@/component/dashboard/dashboardData";
 
-// Enough recent reports to compare the latest period and draw a six-point trend.
-const DASHBOARD_REPORTS = 12;
-
+// The client's dashboard: everything on it comes from one call (backend: GET /dashboard/me).
 const DashboardPage = async () => {
-  const [session, result] = await Promise.all([auth(), listMyReportsAction({ limit: DASHBOARD_REPORTS, full: true })]);
+  const [session, result] = await Promise.all([auth(), getMyDashboardAction()]);
 
   return (
     <Dashboard
       name={session?.user?.name ?? "there"}
-      model={result.ok && result.data ? buildDashboard(result.data.reports) : null}
+      model={result.ok ? buildDashboard(result.data) : null}
       error={result.ok ? undefined : result.error}
     />
   );
