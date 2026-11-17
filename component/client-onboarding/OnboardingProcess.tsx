@@ -3,7 +3,7 @@
 import { Fragment, useEffect, useRef, useState, type DragEvent, type ReactNode } from "react";
 import Link from "next/link";
 import { AnimatePresence, MotionConfig, motion } from "framer-motion";
-import { Building2, Camera, Check, ChevronDown, CircleAlert, Copy, ExternalLink, Globe, Info, LifeBuoy, Loader2, Lock, Mail, MapPin, Palette, Plus, Server, ShieldCheck, Target, Upload, User, Users, X, type LucideIcon } from "lucide-react";
+import { Building2, Camera, Check, ChevronDown, CircleAlert, Copy, ExternalLink, Globe, FileText, Info, LifeBuoy, ListPlus, Loader2, Lock, Mail, MapPin, Palette, Plus, Server, ShieldCheck, Target, Upload, User, Users, X, type LucideIcon } from "lucide-react";
 import { deleteOnboardingAction, getMyOnboardingAction, listMyOnboardingCommentsAction, startOnboardingAction, updateMyOnboardingAction, updateOnboardingAction, type Onboarding, type OnboardingComment, type OnboardingFile } from "@/app/actions/onboarding";
 import { formatFileSize } from "@/component/projects/projectUi";
 import { poppins } from "@/component/shared/fonts";
@@ -22,6 +22,9 @@ import {
   EMAIL_STEPS,
   controlIdOf,
   customAccountsOf,
+  extraItemsOf,
+  EXTRA_SECRET,
+  EXTRA_UPLOAD,
   FEATURE_CHOICES,
   GOAL_BUDGETS,
   GOAL_TARGETS,
@@ -49,6 +52,7 @@ import {
   type Grant,
   type Answers,
   type Competitor,
+  type ExtraItem,
   type Media,
   type PlatformGroup,
   type StepId,
@@ -109,6 +113,7 @@ const STEP_ICONS: Record<StepId, LucideIcon> = {
   google: MapPin,
   social: Users,
   media: Camera,
+  extra: ListPlus,
 };
 
 // ── Small pieces ─────────────────────────────────────────────────────────────
@@ -1375,8 +1380,10 @@ const AccountItem = ({ form, account, google }: { form: Form; account: Account; 
 // (DigitalOcean Spaces, sent straight to the backend) — there is nothing to save afterwards.
 // What is uploaded shows inside the same box, as a picture of each one, with a way to take it
 // back; the ones on their way up show there at once, dimmed, from the files on this device.
-const MediaUpload = ({ form, media }: { form: Form; media: Pick<Media, "id"> }) => {
-  const rule = MEDIA_UPLOAD[media.id];
+// `extra`: the files of an item the team added ("Additional items") — images, videos or documents.
+const MediaUpload = ({ form, media, extra }: { form: Form; media: Pick<Media, "id">; extra?: ExtraItem }) => {
+  const rule = extra ? { kind: "", ...EXTRA_UPLOAD } : MEDIA_UPLOAD[media.id];
+  const path = extra ? `/onboarding/me/extra-items/${extra.key}/files` : `/onboarding/me/media/${rule.kind}`;
   const list = form.files[media.id] ?? [];
   const input = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
@@ -1384,7 +1391,7 @@ const MediaUpload = ({ form, media }: { form: Form; media: Pick<Media, "id"> }) 
   const [removing, setRemoving] = useState<string | null>(null);
   const [dragging, setDragging] = useState(false);
   // The files being uploaded just now, pictured from this device until the stored ones replace them.
-  const [pending, setPending] = useState<{ name: string; url: string; video: boolean }[]>([]);
+  const [pending, setPending] = useState<{ name: string; url: string; video: boolean; doc?: boolean }[]>([]);
   // What couldn't be uploaded on the last try, and why.
   const [problems, setProblems] = useState<string[]>([]);
   const busy = uploading || removing !== null;
@@ -1406,12 +1413,12 @@ const MediaUpload = ({ form, media }: { form: Form; media: Pick<Media, "id"> }) 
     if (!sending.length) return;
 
     setUploading(true);
-    const previews = sending.map((file) => ({ name: file.name, url: URL.createObjectURL(file), video: file.type.startsWith("video/") }));
+    const previews = sending.map((file) => ({ name: file.name, url: URL.createObjectURL(file), video: file.type.startsWith("video/"), doc: !file.type.startsWith("video/") && !file.type.startsWith("image/") }));
     setPending(previews);
     try {
       const body = new FormData();
       for (const file of sending) body.append("files", file);
-      const { status, body: result } = await sendToBackend<MediaResponse>("POST", `/onboarding/me/media/${rule.kind}`, body);
+      const { status, body: result } = await sendToBackend<MediaResponse>("POST", path, body);
       if (status >= 200 && status < 300 && Array.isArray(result?.data?.files)) {
         form.setFiles(media.id, result.data.files);
         form.say(sending.length === 1 ? "1 file uploaded." : `${sending.length} files uploaded.`);
@@ -1430,7 +1437,7 @@ const MediaUpload = ({ form, media }: { form: Form; media: Pick<Media, "id"> }) 
     if (busy) return;
     setRemoving(file.url);
     try {
-      const { status, body: result } = await sendToBackend<MediaResponse>("DELETE", `/onboarding/me/media/${rule.kind}`, { url: file.url });
+      const { status, body: result } = await sendToBackend<MediaResponse>("DELETE", path, { url: file.url });
       if (status >= 200 && status < 300 && Array.isArray(result?.data?.files)) form.setFiles(media.id, result.data.files);
       else setProblems([result?.message ?? `Couldn't remove ${file.name}.`]);
     } catch {
@@ -1445,9 +1452,13 @@ const MediaUpload = ({ form, media }: { form: Form; media: Pick<Media, "id"> }) 
     upload(Array.from(event.dataTransfer.files));
   };
 
-  // A picture of one file: the image itself, or the video's opening frame.
-  const picture = (url: string, video: boolean) =>
-    video ? (
+  // A picture of one file: the image itself, or the video's opening frame — a document's icon.
+  const picture = (url: string, video: boolean, doc = false) =>
+    doc ? (
+      <span className="grid h-full w-full place-items-center bg-[#f5f8ff] text-[#2f5fd8]">
+        <FileText size={28} strokeWidth={1.75} />
+      </span>
+    ) : video ? (
       <video src={`${url}#t=0.1`} preload="metadata" muted playsInline className="h-full w-full object-cover" />
     ) : (
       // A stored file sits on the storage's own address, and one on its way up is a blob from
@@ -1501,7 +1512,7 @@ const MediaUpload = ({ form, media }: { form: Form; media: Pick<Media, "id"> }) 
               {list.map((file) => (
                 <li key={file.url} className={`${tileClass} ${removing === file.url ? "opacity-55" : ""}`}>
                   <a href={file.url} target="_blank" rel="noopener noreferrer" title={`${file.name} · ${formatFileSize(file.size)}`} className="block h-full w-full">
-                    {picture(file.url, file.mimeType.startsWith("video/"))}
+                    {picture(file.url, file.mimeType.startsWith("video/"), !file.mimeType.startsWith("video/") && !file.mimeType.startsWith("image/"))}
                   </a>
                   <span className={nameClass}>{file.name}</span>
                   <button
@@ -1517,7 +1528,7 @@ const MediaUpload = ({ form, media }: { form: Form; media: Pick<Media, "id"> }) 
               ))}
               {pending.map((file) => (
                 <li key={file.url} className={tileClass} aria-busy="true">
-                  <span className="block h-full w-full opacity-45">{picture(file.url, file.video)}</span>
+                  <span className="block h-full w-full opacity-45">{picture(file.url, file.video, file.doc)}</span>
                   <span className="absolute inset-0 grid place-items-center">
                     <Loader2 size={20} strokeWidth={2.5} className="animate-spin text-[#2f5fd8]" />
                   </span>
@@ -1551,6 +1562,87 @@ const MediaUpload = ({ form, media }: { form: Form; media: Pick<Media, "id"> }) 
         </div>
       ) : null}
     </>
+  );
+};
+
+// An item the team added for this client: what they asked, then a place for each thing it asks for —
+// information, a login, a password, a link, files.
+const ExtraItemBody = ({ form, item }: { form: Form; item: ExtraItem }) => {
+  const { id } = item;
+  const loginSaved = form.answers[`${id}.passwordSet`] === true;
+  const secretSaved = form.answers[`${id}.${EXTRA_SECRET}.passwordSet`] === true;
+  const savedHint = "(saved — type a new one to replace it)";
+  const asks = (field: ExtraItem["fields"][number]) => item.fields.includes(field);
+  return (
+    <div className="flex flex-col">
+      {item.description ? (
+        <div className="mb-1 rounded-lg bg-[#f5f8ff] px-3.5 py-3 text-[12.5px] leading-normal whitespace-pre-line text-[#1e3a8a]">{item.description}</div>
+      ) : null}
+      {asks("info") ? (
+        <div>
+          <label htmlFor={`${id}-info`} className={labelClass}>
+            Information
+          </label>
+          <textarea
+            id={`${id}-info`}
+            maxLength={LONG_TEXT_MAX}
+            className={`${inputClass} min-h-24 resize-y leading-normal`}
+            placeholder="Type the details here"
+            value={text(form.answers, `${id}.info`)}
+            onChange={(event) => form.set(`${id}.info`, event.target.value)}
+          />
+        </div>
+      ) : null}
+      {asks("login") ? (
+        <div className="grid gap-x-3.5 sm:grid-cols-2">
+          <Field form={form} id={`${id}-username`} name={`${id}.username`} label="Username or email" autoComplete="off" />
+          <Field
+            form={form}
+            id={`${id}-password`}
+            name={`${id}.password`}
+            type="password"
+            label="Password"
+            hint={loginSaved ? savedHint : undefined}
+            placeholder={loginSaved ? "••••••••" : undefined}
+            autoComplete="off"
+            maxLength={200}
+          />
+        </div>
+      ) : null}
+      {asks("password") ? (
+        <Field
+          form={form}
+          id={`${id}-secret`}
+          name={`${id}.${EXTRA_SECRET}.password`}
+          type="password"
+          label={asks("login") ? "Other password" : "Password"}
+          hint={secretSaved ? savedHint : undefined}
+          placeholder={secretSaved ? "••••••••" : undefined}
+          autoComplete="off"
+          maxLength={200}
+        />
+      ) : null}
+      {asks("login") || asks("password") ? (
+        <div className="mt-3">
+          <Note tone="blue" icon={Lock}>
+            Passwords are encrypted before they are stored, and they aren&apos;t shown on this page again.
+          </Note>
+        </div>
+      ) : null}
+      {asks("link") ? <Field form={form} id={`${id}-link`} name={`${id}.link`} type="url" label="Link" placeholder="https://" /> : null}
+      {asks("file") ? (
+        <div>
+          <div className={labelClass}>Files</div>
+          {form.canUpload ? (
+            <MediaUpload form={form} media={{ id }} extra={item} />
+          ) : (
+            <Note tone="amber" icon={Info}>
+              Files can be uploaded once you sign in to your portal.{asks("link") ? " You can share a link above for now." : ""}
+            </Note>
+          )}
+        </div>
+      ) : null}
+    </div>
   );
 };
 
@@ -1746,6 +1838,8 @@ const OnboardingProcess = ({
   const [seed] = useState(() => (initial ? fromBackend(initial) : null));
   // The accounts the team added for this client ("Discord"), kept up to date (reloadStanding).
   const [customs, setCustoms] = useState(() => customAccountsOf(initial?.onboarding));
+  // The items the team added for this client ("Additional items"), kept up to date the same way.
+  const [extras, setExtras] = useState(() => extraItemsOf(initial?.onboarding));
   const [answers, setAnswers] = useState<Answers>(seed?.answers ?? BLANK_ANSWERS);
   const [competitors, setCompetitors] = useState<Competitor[]>(seed?.competitors ?? BLANK_COMPETITORS);
   const [pages, setPages] = useState(seed?.pages ?? DEFAULT_PAGES);
@@ -1799,20 +1893,33 @@ const OnboardingProcess = ({
   // Until the team has said, it is the steps a client starts without.
   // Kept up to date as the team changes it (reloadStanding).
   const [notNeeded, setNotNeeded] = useState(() => new Set(initial?.onboarding?.notNeeded ?? DEFAULT_NOT_NEEDED));
+  // An item's name on the form: the team's own name for an account or an item they added.
+  const titleOf = (item: string) => ITEM_TITLES[item] ?? customs.find((account) => account.id === item)?.name ?? extras.find((entry) => entry.id === item)?.title ?? item;
   const ownItems = (id: StepId) =>
-    id === "contact" ? itemsOf(id) : notNeeded.has(`step:${id}`) ? [] : itemsOf(id, customs).filter((item) => !notNeeded.has(controlIdOf(item)));
-  const steps = STEPS.filter((entry) => ownItems(entry.id).length > 0);
-  const asked = new Set(steps.flatMap((entry) => ownItems(entry.id)));
+    id === "contact" ? itemsOf(id) : notNeeded.has(`step:${id}`) ? [] : itemsOf(id, customs, extras).filter((item) => !notNeeded.has(controlIdOf(item)));
+  // The form's steps in order. Each item the team added is a step of its own, under the title
+  // they gave it (`only`: its one item); `key` tells the steps apart.
+  type FormStep = (typeof STEPS)[number] & { key: string; only?: string };
+  const steps: FormStep[] = STEPS.flatMap((entry): FormStep[] =>
+    entry.id === "extra"
+      ? ownItems("extra").map((item) => ({ ...entry, key: item, only: item, title: titleOf(item), heading: titleOf(item) }))
+      : ownItems(entry.id).length
+        ? [{ ...entry, key: entry.id }]
+        : [],
+  );
+  // The items of one step on the form.
+  const itemsOfStep = (entry: FormStep) => (entry.only ? [entry.only] : ownItems(entry.id));
+  const asked = new Set(steps.flatMap(itemsOfStep));
 
   // A step can leave the list while it is open (the team took it off): the one before it then.
   const step = steps[Math.min(current, steps.length - 1)];
-  const statuses = statusesOf(answers, customs).filter((status) => asked.has(status.id));
+  const statuses = statusesOf(answers, customs, extras).filter((status) => asked.has(status.id));
   // An item's name on the form: the team's own name for an account they added.
-  const titleOf = (item: string) => ITEM_TITLES[item] ?? customs.find((account) => account.id === item)?.name ?? item;
   const statusOf = (item: string) => statuses.find((status) => status.id === item);
   const answered = statuses.filter(isAnswered).length;
-  const items = ownItems(step.id);
-  const accordion = isAccordion(step.id);
+  const items = itemsOfStep(step);
+  // An item the team added is a step of its own: open, not one of several to pick from.
+  const accordion = isAccordion(step.id) && !step.only;
   const StepIcon = STEP_ICONS[step.id];
 
   // What the account manager has approved (company-portal: OnboardingControls), by item.
@@ -1828,6 +1935,7 @@ const OnboardingProcess = ({
       setUpdateAsked(new Set(result.data.onboarding?.updateAsked ?? []));
       setNotNeeded(new Set(result.data.onboarding?.notNeeded ?? DEFAULT_NOT_NEEDED));
       setCustoms(customAccountsOf(result.data.onboarding));
+      setExtras(extraItemsOf(result.data.onboarding));
     });
   // The comments on the form — the step's box (StepComments) and each item's notes (ItemNotes) —
   // live from either side (backend → onboarding:comment), and reloaded now and then in case the
@@ -1857,8 +1965,9 @@ const OnboardingProcess = ({
   });
   // Where a step stands: approved once every item on it is; todo while one still has no answer;
   // otherwise submitted, and ours to check.
-  const standingOf = (id: StepId): StepStanding => {
-    const own = ownItems(id);
+  const standingOf = (entry: FormStep): StepStanding => {
+    const id = entry.id;
+    const own = itemsOfStep(entry);
     // A step (or an item of it) the team asked them to update is to do again, approved or not.
     if (updateAsked.has(`step:${id}`) || own.some((item) => updateAsked.has(controlIdOf(item)))) return "todo";
     if (own.length && own.every((item) => approved.has(controlIdOf(item)))) return "approved";
@@ -1880,7 +1989,7 @@ const OnboardingProcess = ({
       ...(name ? { contactName: name } : {}),
       ...(company ? { companyName: company } : {}),
       phone: cleanPhone(text(from, "contact.phone").trim()),
-      answers: toBackend(from, competitors, pages, features, customs),
+      answers: toBackend(from, competitors, pages, features, customs, extras),
     };
   };
   const snapshotOf = (from: Answers) => JSON.stringify(detailsOf(from));
@@ -1941,13 +2050,13 @@ const OnboardingProcess = ({
     // Saved on the way — only when something changed (or, without an account, until the first save starts it).
     if ((changed() || (!mine && !started)) && !(await save("step"))) return false;
     const next = steps[target];
-    const own = ownItems(next.id);
+    const own = itemsOfStep(next);
     setCurrent(target);
     const unanswered = own.find((id) => {
       const status = statusOf(id);
       return !status || !isAnswered(status);
     });
-    setOpenItem(isAccordion(next.id) ? (item ?? unanswered ?? own[0] ?? null) : null);
+    setOpenItem(isAccordion(next.id) && !next.only ? (item ?? unanswered ?? own[0] ?? null) : null);
     window.scrollTo({ top: 0, behavior: "smooth" });
     return true;
   };
@@ -1955,9 +2064,10 @@ const OnboardingProcess = ({
   // Opens the step (and item) a comment is on — from a notification's link, or the comments box —
   // and brings the item into view.
   const focusOn = (stepId: string, controlId?: string) => {
-    const target = steps.findIndex((entry) => entry.id === stepId);
+    // An item the team added is found by the step that is its own.
+    const target = steps.findIndex((entry) => entry.id === stepId && (!entry.only || !controlId || entry.only === controlId));
     if (target < 0) return;
-    const own = ownItems(steps[target].id);
+    const own = itemsOfStep(steps[target]);
     const formItem = controlId ? own.find((entry) => controlIdOf(entry) === controlId) : undefined;
     void go(target, formItem).then((moved) => {
       if (!moved || !formItem) return;
@@ -2060,7 +2170,9 @@ const OnboardingProcess = ({
         const social = [...SOCIAL, ...customs.filter((account) => account.custom === "social")].find((account) => account.id === item);
         if (social) return <AccountItem form={form} account={social} google={false} />;
         const media = MEDIA.find((entry) => entry.id === item);
-        return media ? <MediaItem form={form} media={media} /> : null;
+        if (media) return <MediaItem form={form} media={media} />;
+        const extra = extras.find((entry) => entry.id === item);
+        return extra ? <ExtraItemBody form={form} item={extra} /> : null;
       }
     }
   };
@@ -2103,7 +2215,7 @@ const OnboardingProcess = ({
           <form noValidate onSubmit={(event) => event.preventDefault()} className="min-w-0">
             <AnimatePresence mode="wait" initial={false}>
               <motion.section
-                key={step.id}
+                key={step.key}
                 initial={{ opacity: 0, y: 12 }}
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -8 }}
@@ -2290,10 +2402,10 @@ const OnboardingProcess = ({
               </p>
               <ol className="mt-3.5 flex flex-col">
                 {steps.map((entry, index) => {
-                  const standing = standingOf(entry.id);
+                  const standing = standingOf(entry);
                   const here = index === current;
                   return (
-                    <li key={entry.id}>
+                    <li key={entry.key}>
                       <button
                         type="button"
                         aria-current={here ? "step" : undefined}

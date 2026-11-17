@@ -1,4 +1,4 @@
-import type { Onboarding, OnboardingAccount, OnboardingAnswers, OnboardingFile, OnboardingMedia } from "@/app/actions/onboarding";
+import type { Onboarding, OnboardingAccount, OnboardingAnswers, OnboardingExtraField, OnboardingFile, OnboardingMedia } from "@/app/actions/onboarding";
 
 // What the onboarding form asks, how each answer is read, and how the answers go to the
 // backend and come back. Kept apart from the form so the questions can change without
@@ -504,7 +504,7 @@ export const listOf = (line: string) =>
 
 // ── The steps ────────────────────────────────────────────────────────────────
 
-export type StepId = "contact" | "web" | "domain" | "email" | "logo" | "google" | "social" | "media";
+export type StepId = "contact" | "web" | "domain" | "email" | "logo" | "google" | "social" | "media" | "extra";
 
 export const STEPS: { id: StepId; title: string; heading: string; sub: string }[] = [
   { id: "contact", title: "About you", heading: "About you", sub: "Who we're setting up, and how to reach you. Your answers are saved under this email." },
@@ -515,14 +515,54 @@ export const STEPS: { id: StepId; title: string; heading: string; sub: string }[
   { id: "google", title: "Google accounts", heading: "Google accounts", sub: "Google Maps, Analytics and more. Open each one and answer a quick question." },
   { id: "social", title: "Social media", heading: "Social media", sub: "Which accounts you have, and which you'd like us to create." },
   { id: "media", title: "Photos and videos", heading: "Photos and videos", sub: "Upload what you have. If you need new ones, your account manager will get back to you." },
+  // Each item the team added for this client is a step of its own, under the title they gave it
+  // (OnboardingProcess → steps); these words are what they share.
+  { id: "extra", title: "Additional items", heading: "Additional items", sub: "Your account manager asked for this. Follow the instructions below." },
 ];
+
+// ── The team's own items ("Additional items") ────────────────────────────────
+
+// An item the team added for this client: its id on the form ("extra.customAbc…", as the team's
+// ticks name it too), what it is called, what to do, and what it asks for.
+export type ExtraItem = { id: string; key: string; title: string; description: string; fields: OnboardingExtraField[] };
+export const extraItemsOf = (onboarding?: Pick<OnboardingAnswers, "extraItems">): ExtraItem[] =>
+  Object.entries(onboarding?.extraItems ?? {}).map(([key, item]) => ({
+    id: `extra.${key}`,
+    key,
+    title: item.title ?? "Item",
+    description: item.description ?? "",
+    fields: item.fields ?? [],
+  }));
+// Where its answers are kept on the form: a login's password at "<id>.password", and a password it
+// asks on its own at "<id>.secret.password" — both let go of once saved (withoutTypedPasswords).
+export const EXTRA_SECRET = "secret";
+// What its files can be: images, videos and documents (backend: content.model.ts → MEDIA_MIME_TYPES).
+export const EXTRA_UPLOAD = {
+  accept: [
+    "image/jpeg",
+    "image/png",
+    "image/webp",
+    "image/gif",
+    "video/mp4",
+    "video/quicktime",
+    "video/webm",
+    "application/pdf",
+    "application/msword",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    "application/vnd.oasis.opendocument.text",
+    "application/rtf",
+    "text/plain",
+  ],
+  formats: "Images, videos, PDF or Word",
+  maxMb: 200,
+};
 
 // The steps that ask the client to invite the access email — where its card is shown.
 export const EMAIL_STEPS: StepId[] = ["domain", "google", "social"];
 
 // The items each step asks about, in order. Every one is always asked, whatever the answers.
 // `customs`: the accounts the team added for this client, after the usual ones on their step.
-export const itemsOf = (step: StepId, customs: Account[] = []): string[] => {
+export const itemsOf = (step: StepId, customs: Account[] = [], extras: ExtraItem[] = []): string[] => {
   switch (step) {
     case "contact":
       return ["contact"];
@@ -540,13 +580,15 @@ export const itemsOf = (step: StepId, customs: Account[] = []): string[] => {
       return [...SOCIAL, ...customsOn(customs, "social")].map((account) => account.id);
     case "media":
       return MEDIA.map((media) => media.id);
+    case "extra":
+      return extras.map((item) => item.id);
     default:
       return [];
   }
 };
 
 // Steps with several items open them one at a time.
-export const isAccordion = (step: StepId) => ["domain", "google", "social", "media"].includes(step);
+export const isAccordion = (step: StepId) => ["domain", "google", "social", "media", "extra"].includes(step);
 
 // ── Who is answering ─────────────────────────────────────────────────────────
 
@@ -584,7 +626,7 @@ export const DEFAULT_NOT_NEEDED = ["step:domain", "step:google", "step:social", 
 // else by its own id. A step is "step:" and its id.
 export const controlIdOf = (item: string) => {
   // An account the team added is named so already ("social.customAbc…").
-  if (CUSTOM_ID.test(item)) return item;
+  if (CUSTOM_ID.test(item) || item.startsWith("extra.")) return item;
   const under = (section: string, fields: Record<string, string>) => (item in fields ? `${section}.${fields[item]}` : null);
   return under("google", GOOGLE_FIELDS) ?? under("social", SOCIAL_FIELDS) ?? under("media", MEDIA_FIELDS) ?? item;
 };
@@ -593,7 +635,7 @@ const entriesOf = <Fields extends Record<string, string>>(fields: Fields) => Obj
 
 // The answers as the backend stores them (client.onboarding). An empty answer is left out:
 // each section replaces what was stored for it, so what isn't sent is cleared.
-export const toBackend = (answers: Answers, competitors: Competitor[], pages: string[], features: string[], customs: Account[] = []): OnboardingAnswers => {
+export const toBackend = (answers: Answers, competitors: Competitor[], pages: string[], features: string[], customs: Account[] = [], extras: ExtraItem[] = []): OnboardingAnswers => {
   const text = (key: string) => {
     const value = answers[key];
     return typeof value === "string" && value.trim() ? value.trim() : undefined;
@@ -709,6 +751,23 @@ export const toBackend = (answers: Answers, competitors: Competitor[], pages: st
         .map((section) => [`${section}Custom`, Object.fromEntries(customsOn(customs, section).map(({ id }) => [keyOfCustom(id), account(id)]))]),
     ),
     media: Object.fromEntries(entriesOf(MEDIA_FIELDS).map(([id, field]) => [field, media(id)])),
+    // Only the answers: the backend keeps each item as the team made it, and its files.
+    ...(extras.length
+      ? {
+          extraItems: Object.fromEntries(
+            extras.map(({ id, key }) => [
+              key,
+              {
+                info: text(`${id}.info`),
+                link: text(`${id}.link`),
+                loginUsername: text(`${id}.username`),
+                loginPassword: text(`${id}.password`),
+                password: text(`${id}.${EXTRA_SECRET}.password`),
+              },
+            ]),
+          ),
+        }
+      : {}),
   };
 };
 
@@ -816,8 +875,20 @@ export const fromBackend = (stored: Onboarding): { answers: Answers; competitors
     put(`${id}.connected`, account?.connected);
     put(`${id}.passwordSet`, account?.loginPasswordSet);
   }
+  // The answers to the team's own items, and their files.
+  const extraFiles: Record<string, OnboardingFile[]> = {};
+  for (const [key, item] of Object.entries(saved.extraItems ?? {})) {
+    const id = `extra.${key}`;
+    put(`${id}.info`, item.info);
+    put(`${id}.link`, item.link);
+    put(`${id}.username`, item.loginUsername);
+    put(`${id}.passwordSet`, item.loginPasswordSet);
+    put(`${id}.${EXTRA_SECRET}.passwordSet`, item.passwordSet);
+    extraFiles[id] = item.files ?? [];
+    put(`${id}.hasFiles`, extraFiles[id].length > 0);
+  }
   // The logo's files, with the photos and videos: all uploaded the same way.
-  const files: Record<string, OnboardingFile[]> = { logo: logo?.files ?? [], logoStyle: logo?.styleFiles ?? [] };
+  const files: Record<string, OnboardingFile[]> = { ...extraFiles, logo: logo?.files ?? [], logoStyle: logo?.styleFiles ?? [] };
   put("logo.hasFiles", files.logo.length > 0);
   for (const [id, field] of entriesOf(MEDIA_FIELDS)) {
     const media = saved.media?.[field];
@@ -936,7 +1007,25 @@ const mediaStanding = (answers: Answers, id: string): Standing => {
 };
 
 // Every item on the form, with where it stands — for its pill and the progress.
-export const statusesOf = (answers: Answers, customs: Account[] = []): Status[] => {
+// An item the team added: answered once everything it asks for is given.
+const extraStanding = (answers: Answers, item: ExtraItem): Standing => {
+  const has = (key: string) => (typeof answers[key] === "string" ? (answers[key] as string).trim() !== "" : answers[key] === true);
+  const given = item.fields.map((field) =>
+    field === "info"
+      ? has(`${item.id}.info`)
+      : field === "link"
+        ? has(`${item.id}.link`)
+        : field === "file"
+          ? has(`${item.id}.hasFiles`)
+          : field === "login"
+            ? has(`${item.id}.username`) && (has(`${item.id}.password`) || has(`${item.id}.passwordSet`))
+            : has(`${item.id}.${EXTRA_SECRET}.password`) || has(`${item.id}.${EXTRA_SECRET}.passwordSet`),
+  );
+  const count = given.filter(Boolean).length;
+  return !count ? TODO : count === given.length ? ["Done", "done"] : ["Partly done", "pending"];
+};
+
+export const statusesOf = (answers: Answers, customs: Account[] = [], extras: ExtraItem[] = []): Status[] => {
   const list: Status[] = [];
   const add = (group: string, id: string, name: string, [label, tone]: Standing) => list.push({ id, group, name, label, tone });
 
@@ -984,5 +1073,6 @@ export const statusesOf = (answers: Answers, customs: Account[] = []): Status[] 
   for (const account of [...GOOGLE, ...customsOn(customs, "google")]) add("Google", account.id, account.short, accountStanding(answers, account.id, account.custom ? account : undefined));
   for (const account of [...SOCIAL, ...customsOn(customs, "social")]) add("Social media", account.id, account.short, accountStanding(answers, account.id, account));
   for (const media of MEDIA) add("Photos and videos", media.id, media.name, mediaStanding(answers, media.id));
+  for (const item of extras) add("Additional items", item.id, item.title, extraStanding(answers, item));
   return list;
 };

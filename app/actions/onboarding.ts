@@ -124,6 +124,25 @@ export interface OnboardingAnswers {
   // The same on the Google step.
   googleCustom?: Record<string, OnboardingAccount & { name?: string }>;
   media?: Partial<Record<"professionalPhotos" | "businessPhotos" | "videos", OnboardingMedia>>;
+  // Items the team added to this client's form ("Additional items"), by key: what each is called,
+  // what to do, what it asks for — and the answers. Only the answers are sent back; a password is
+  // never sent back to the form, only that one is saved.
+  extraItems?: Record<string, OnboardingExtraItem>;
+}
+
+export type OnboardingExtraField = "info" | "login" | "password" | "link" | "file";
+export interface OnboardingExtraItem {
+  title?: string;
+  description?: string;
+  fields?: OnboardingExtraField[];
+  info?: string;
+  link?: string;
+  loginUsername?: string;
+  loginPassword?: string;
+  loginPasswordSet?: boolean;
+  password?: string;
+  passwordSet?: boolean;
+  files?: OnboardingFile[];
 }
 
 // An onboarding as the backend gives it back: who is answering, and their answers so far.
